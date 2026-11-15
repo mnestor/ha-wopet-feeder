@@ -33,6 +33,8 @@ starts from DrDronez/ha-wopet-local 0.2.10.
   `bowl_full`, one per new record). Read at startup (30 days), every 10 minutes
   (last day, with a full 30-day re-read every 6 hours), and right after the
   Feed button.
+- Manifest `categories`: pets, then cameras (Home Assistant's integration
+  browser and HACS use them).
 - Needs bridge 0.5.9.
 
 ## Bridge 0.5.9

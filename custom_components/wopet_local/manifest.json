@@ -1,6 +1,10 @@
 {
   "domain": "wopet_local",
   "name": "Wopet Local (feeder)",
+  "categories": [
+    "pets",
+    "security_safety.cameras"
+  ],
   "codeowners": [
     "@mnestor"
   ],
