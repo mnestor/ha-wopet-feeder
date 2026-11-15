@@ -3,6 +3,9 @@
 Each record is {"time": Unix seconds, "result": "dispensed" | "bowl_full" | "unknown",
 "code": int, "value": int}. A dispensed record's value is portions x 10; a bowl_full
 record means the feeder skipped a scheduled or manual feed because the bowl was full.
+
+The feeder logs scheduled feeds and every refusal, but not a manual feed that
+dispensed, so Home Assistant adds those itself (manual_feed), with "source": "manual".
 """
 
 from __future__ import annotations
@@ -48,6 +51,12 @@ def portions(record: Record) -> float | None:
         return None
     value = int(record["value"])
     return value // 10 if value % 10 == 0 else value / 10
+
+
+def manual_feed(stamp: int, portions: int) -> Record:
+    """A dispensed manual feed, which the feeder's own log leaves out."""
+    return {"time": stamp, "result": DISPENSED, "code": 0x32, "value": portions * 10,
+            "source": "manual"}
 
 
 def newer_than(records: list[Record], marker: int) -> list[Record]:

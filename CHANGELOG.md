@@ -4,6 +4,14 @@ Versions of the bridge app (`wopet_bridge/config.yaml`) and the integration
 (`custom_components/wopet_local/manifest.json`) move independently. This fork
 starts from DrDronez/ha-wopet-local 0.2.10.
 
+## Integration 0.4.1
+
+- The Feed button now counts in the feed history. The feeder logs refused
+  manual feeds but not ones that dispensed, so after a successful press the
+  integration adds the feed itself (`"source": "manual"`, kept across
+  restarts). Before this, *Last fed* missed it and *Bowl full* stayed on.
+- Pressed from Home Assistant on the real feeder: dispensed as asked.
+
 ## Integration 0.4.0
 
 - Each meal gets a **clip** select: Silent, or one of the feeder's five voice

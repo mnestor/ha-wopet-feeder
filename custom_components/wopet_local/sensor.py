@@ -52,7 +52,8 @@ class WopetLastFedSensor(WopetFeedLogEntity, SensorEntity):
             "last_attempt": None if attempt is None else _iso(attempt["time"]),
             "last_attempt_result": None if attempt is None else attempt["result"],
             "recent": [
-                {"time": _iso(r["time"]), "result": r["result"], "portions": feedlog.portions(r)}
+                {"time": _iso(r["time"]), "result": r["result"], "portions": feedlog.portions(r),
+                 "source": r.get("source", "feeder")}
                 for r in reversed(self.records[-RECENT:])
             ],
         }

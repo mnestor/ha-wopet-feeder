@@ -25,11 +25,11 @@ If you have a D100, use upstream.
 | Set the feeder clock | Works | Sent at every camera session, with the HA timezone |
 | Run with the internet blocked | Works | See [Ways to run it](#ways-to-run-it) |
 | Stop offline video drops | Works (soaks of about an hour so far) | Local answers to the feeder's P2P server queries, reached by a DNS override or router redirects |
-| Manual feed (Feed button) | Implemented, not yet pressed from HA | Sent exactly once, never retried; reports "bowl full" refusals |
+| Manual feed (Feed button) | Works | Sent exactly once, never retried; reports "bowl full" refusals |
 | Edit the schedule on a dashboard | Works | Feeding schedule card (`custom:wopet-schedule-card`), loaded by the integration |
 | Choose a clip per meal | Works | `Meal N clip` select: Silent or one of the five clips, with their labels |
 | Record a voice clip | Works | Recorder card on the dashboard, or `wopet_local.upload_clip` for an audio file; `wopet_local.play_clip` plays one now; bridge 0.5.8 + integration 0.4.0 |
-| Feeding history | Works | The feeder's own log of every feed (dispensed, or skipped because the bowl was full), 30 days back; `Last fed`, `Bowl full` and a `Feed` event; bridge 0.5.9 + integration 0.4.0 |
+| Feeding history | Works | The feeder's own log of every feed (dispensed, or skipped because the bowl was full), 30 days back; `Last fed`, `Bowl full` and a `Feed` event; bridge 0.5.9 + integration 0.4.1 |
 | Camera audio | Works (experimental, off by default) | 8 kHz microphone as G.711 A-law next to the video; needs bridge 0.5.7 |
 | Talk through the feeder speaker | Works (experimental) | `POST /talk` on the control port; Home app talk button through Homebridge; needs bridge 0.5.8 |
 | HomeKit with Secure Video | Works | Through Homebridge, with a software motion trigger; see [HomeKit](docs/HOMEKIT.md) |
@@ -188,7 +188,10 @@ title: Feeding schedule
 The feeder keeps its own record of every scheduled and manual feed, and whether
 it dispensed or skipped it because the bowl was still full (what the WOpet app
 calls "dispense excessive food"). The integration reads the last 30 days at
-startup and the last day every 10 minutes. A run of skipped feeds usually means
+startup and the last day every 10 minutes. The feeder doesn't log a manual feed
+that dispensed (only refusals), so the integration records Feed-button feeds
+itself (`"source": "manual"`); a feed from the WOpet app isn't seen. A run of
+skipped feeds usually means
 the cat isn't eating, or kibble is stuck in the chute; for example, notify when
 `binary_sensor.<name>_bowl_full` has `skipped_feeds` of 3 or more.
 

@@ -59,6 +59,7 @@ class WopetFeedEvent(WopetFeedLogEntity, EventEntity):
                 "feed_time": dt_util.as_local(
                     dt_util.utc_from_timestamp(record["time"])).isoformat(),
                 "portions": feedlog.portions(record),
+                "source": record.get("source", "feeder"),
                 "code": record["code"],
             })
             self._marker = int(record["time"])

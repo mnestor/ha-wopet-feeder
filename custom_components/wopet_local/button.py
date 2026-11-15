@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import device_info
@@ -36,9 +37,14 @@ class WopetFeedButton(ButtonEntity):
 
     async def async_press(self) -> None:
         runtime = self._entry.runtime_data
+        portions = int(runtime.feed_portions)
         try:
-            await runtime.client.async_feed(int(runtime.feed_portions))
-        finally:
-            # The feeder logs the feed (or its bowl-full refusal) at once.
+            await runtime.client.async_feed(portions)
+        except HomeAssistantError:
+            # A refusal (bowl full) is in the feeder's own log at once.
             if runtime.feed_log is not None:
                 await runtime.feed_log.async_request_refresh()
+            raise
+        # A feed that dispensed is not in the feeder's log: record it here.
+        if runtime.feed_log is not None:
+            await runtime.feed_log.async_record_manual_feed(portions)

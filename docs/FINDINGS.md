@@ -189,6 +189,5 @@ speaker fade within about a second; that is not lost audio.
   earlier `0x20d3` query of ours timed out and broke the next session's
   handshake (the app's `0x20d3` request is in the capture, but the bridge
   doesn't send it).
-- Manual feed from Home Assistant has not been pressed on the real feeder yet.
 - Why camera audio once stopped after about 95 seconds (seen once, not since).
 - Other models or firmware versions.

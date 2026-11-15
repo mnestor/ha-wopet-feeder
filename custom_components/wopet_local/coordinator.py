@@ -11,6 +11,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from . import feedlog
@@ -91,9 +92,29 @@ class WopetFeedLogCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         self.client = client
         self._full_read_at = 0.0
+        # Manual feeds that dispensed: the feeder doesn't log them, so keep our own.
+        self._store: Store[list[dict[str, Any]]] = Store(
+            hass, 1, f"{DOMAIN}.{entry.entry_id}.manual_feeds"
+        )
+        self._manual: list[dict[str, Any]] | None = None
+
+    async def _manual_feeds(self) -> list[dict[str, Any]]:
+        if self._manual is None:
+            self._manual = await self._store.async_load() or []
+        return self._manual
+
+    async def async_record_manual_feed(self, portions: int) -> None:
+        """Add a Feed-button feed that dispensed, and save it."""
+        now = time.time()
+        record = feedlog.manual_feed(int(now), portions)
+        kept = feedlog.merge(await self._manual_feeds(), [record], now)
+        self._manual = kept
+        await self._store.async_save(kept)
+        self.async_set_updated_data(feedlog.merge(self.data or [], [record], now))
 
     async def _async_update_data(self) -> list[dict[str, Any]]:
         now = time.time()
+        manual = await self._manual_feeds()
         full = not self.data or now - self._full_read_at >= FEEDLOG_FULL_EVERY.total_seconds()
         days = feedlog.KEEP_DAYS if full else FEEDLOG_POLL_DAYS
         try:
@@ -102,8 +123,8 @@ class WopetFeedLogCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             raise UpdateFailed(str(exc)) from exc
         if full:
             self._full_read_at = now
-            return feedlog.merge([], fresh, now)
-        return feedlog.merge(self.data or [], fresh, now)
+            return feedlog.merge(manual, fresh, now)
+        return feedlog.merge(self.data or [], [*manual, *fresh], now)
 
 
 @dataclass

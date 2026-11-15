@@ -112,7 +112,11 @@ epoch seconds (UTC); all integers are little-endian.
   | `0x32` | 20 | Dispensed |
   | `0x36` | 3 | Refused: bowl full ("Dispense excessive food") |
 
-  Scheduled and manual feeds both appear. One 540-byte reply held 66
+  Scheduled feeds appear whether they dispensed or not; a manual feed
+  (`0x207e`) appears only if it was refused. A manual feed that dispensed is
+  not logged: none of 103 dispensed records in 30 days was off the schedule,
+  and a dispensed one-portion feed from Home Assistant (2026-11-15 18:38) never
+  showed up. One 540-byte reply held 66
   records. The feeder answered a 30-day read (three 10-day windows, 181
   records) in about 2.5 s, so it keeps at least 30 days; whether it pages a
   window with more records than one reply holds is unknown. The reply does not

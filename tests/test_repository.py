@@ -19,7 +19,7 @@ def test_manifest_and_hacs_metadata_are_valid_json() -> None:
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "wopet_local"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.4.0"
+    assert manifest["version"] == "0.4.1"
     assert hacs["name"] == "Wopet Local (feeder)"
     assert manifest["documentation"].startswith("https://github.com/mnestor/ha-wopet-feeder")
 
@@ -222,3 +222,14 @@ def test_feed_log_merge_and_summaries() -> None:
     assert fl.refused_streak(records[:1]) == []
     assert fl.newer_than(records, now - day) == records[2:]
     assert fl.last([]) is None
+
+
+def test_manual_feeds_end_a_refusal_run() -> None:
+    fl = _load_feedlog()
+    now = 100 * 86400
+    log = [_rec(now - 7200, "bowl_full", 3), _rec(now - 3600, "bowl_full", 3)]
+    manual = fl.manual_feed(now - 60, 1)
+    records = fl.merge(log, [manual], now)
+    assert fl.last(records) is manual and fl.refused_streak(records) == []
+    assert fl.last(records, fl.DISPENSED)["source"] == "manual"
+    assert fl.portions(manual) == 1
