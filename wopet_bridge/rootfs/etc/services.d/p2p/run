@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bashio
+# Local answers to the feeder's TUTK master/region queries (see wopet/p2p_responder.py).
+export WOPET_OPTIONS_FILE=/data/options.json
+exec python3 /app/wopet/p2p_responder.py

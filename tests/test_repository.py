@@ -19,8 +19,9 @@ def test_manifest_and_hacs_metadata_are_valid_json() -> None:
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "wopet_local"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.2.10"
-    assert hacs["name"] == "Wopet Local"
+    assert manifest["version"] == "0.3.1"
+    assert hacs["name"] == "Wopet Local (feeder)"
+    assert manifest["documentation"].startswith("https://github.com/mnestor/ha-wopet-feeder")
 
 
 def test_no_capture_files_are_tracked_in_project_tree() -> None:
@@ -36,15 +37,20 @@ def test_home_assistant_app_metadata_is_valid_yaml() -> None:
     translations = yaml.safe_load(
         (ROOT / "wopet_bridge/translations/en.yaml").read_text(encoding="utf-8")
     )
-    assert repository["name"] == "Wopet Local"
-    assert app["slug"] == "wopet_local_bridge"
-    assert app["version"] == "0.2.10"
+    assert repository["name"] == "Wopet Feeder (local)"
+    assert app["slug"] == "wopet_feeder_bridge"
+    assert app["version"] == "0.5.7"
     assert app["arch"] == ["amd64"]
     assert app["host_network"] is True
     assert app["ingress_port"] == 1985
     assert app["options"]["rtsp_port"] == 8554
     assert app["options"]["control_port"] == 1986
     assert app["options"]["enable_audio"] is False
+    assert app["options"]["p2p_responder"] is True
+    assert app["schema"]["p2p_responder"] == "bool"
+    assert "p2p_responder" in translations["configuration"]
+    assert app["options"]["p2p_region_address"] == "auto"
+    assert "p2p_region_address" in translations["configuration"]
     assert app["schema"]["rtsp_port"] == "port"
     assert app["schema"]["control_token"] == "password"
     assert "configuration" in translations
@@ -140,14 +146,32 @@ def test_connection_options_override_initial_camera_settings() -> None:
     camera_source = (ROOT / "custom_components/wopet_local/camera.py").read_text(
         encoding="utf-8"
     )
-    button_source = (ROOT / "custom_components/wopet_local/button.py").read_text(
+    init_source = (ROOT / "custom_components/wopet_local/__init__.py").read_text(
         encoding="utf-8"
     )
     flow_source = (ROOT / "custom_components/wopet_local/config_flow.py").read_text(
         encoding="utf-8"
     )
     assert "entry.options.get(CONF_HOST, entry.data[CONF_HOST])" in camera_source
-    assert "entry.options.get(CONF_HOST, entry.data[CONF_HOST])" in button_source
+    assert "entry.options.get(CONF_HOST, entry.data[CONF_HOST])" in init_source
     assert "vol.Required(\n                    CONF_HOST," in flow_source
     assert "CONF_RTSP_PORT" in flow_source
     assert "CONF_STREAM_NAME" in flow_source
+
+
+def test_changelog_covers_the_current_versions() -> None:
+    """Every released app and integration version is described in the changelog."""
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    app = yaml.safe_load((ROOT / "wopet_bridge/config.yaml").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (ROOT / "custom_components/wopet_local/manifest.json").read_text(encoding="utf-8")
+    )
+    assert f"Bridge {app['version']}" in changelog
+    assert f"Integration {manifest['version']}" in changelog
+
+
+def test_p2p_responder_runs_as_its_own_service() -> None:
+    run = (ROOT / "wopet_bridge/rootfs/etc/services.d/p2p/run").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "wopet_bridge/Dockerfile").read_text(encoding="utf-8")
+    assert "p2p_responder.py" in run
+    assert "/etc/services.d/p2p/run" in dockerfile

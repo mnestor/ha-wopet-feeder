@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_RTSP_PORT, CONF_STREAM_NAME
+from .entity import device_info
 
 
 async def async_setup_entry(
@@ -24,7 +25,7 @@ class WopetLocalCamera(Camera):
     """A camera published by the Wopet Local Bridge."""
 
     _attr_brand = "Wopet"
-    _attr_model = "Guardian Plus D100"
+    _attr_model = "Camera Pet Feeder"
     _attr_supported_features = CameraEntityFeature.STREAM
 
     def __init__(self, entry: ConfigEntry) -> None:
@@ -32,12 +33,7 @@ class WopetLocalCamera(Camera):
         super().__init__()
         self._attr_name = entry.data[CONF_NAME]
         self._attr_unique_id = entry.unique_id or entry.entry_id
-        self._attr_device_info = {
-            "identifiers": {("wopet_local", entry.unique_id or entry.entry_id)},
-            "name": entry.title,
-            "manufacturer": "Wopet",
-            "model": "Guardian Plus D100",
-        }
+        self._attr_device_info = device_info(entry)
         self._host = entry.options.get(CONF_HOST, entry.data[CONF_HOST])
         self._port = entry.options.get(CONF_RTSP_PORT, entry.data[CONF_RTSP_PORT])
         self._stream_name = entry.options.get(

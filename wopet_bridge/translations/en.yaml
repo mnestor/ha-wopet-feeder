@@ -25,7 +25,16 @@ configuration:
     description: A private random token shared only with the Wopet Local integration.
   enable_audio:
     name: Include camera audio
-    description: Experimental AAC audio in the Home Assistant stream.
+    description: Experimental. Adds the feeder's 8 kHz microphone (G.711 A-law) to the stream, sent as MPEG-TS instead of raw video. The feeder sends silence between sounds.
+  preload_stream:
+    name: Keep the camera stream open
+    description: Hold one feeder session open all the time, so viewers (Home Assistant, HomeKit) join instantly instead of each starting and stopping a session. Needed for HomeKit Secure Video.
+  p2p_responder:
+    name: Answer P2P server queries locally
+    description: Answer the feeder's TUTK master (UDP 10240) and region (UDP 10001) queries so it stays up with its internet blocked. Needs a DNS override of the feeder's master server name (all-d-master-*.iotcplatform.com) to this host, or a router redirect of the feeder's UDP 10240.
+  p2p_region_address:
+    name: Region server address in the referral
+    description: "auto (default) names this host, so the feeder's UDP 10001 comes here directly. captured replays the vendor's region servers (then the router must also redirect UDP 10001). Or enter an IPv4 address."
   log_level:
     name: Log level
     description: Use debug only while troubleshooting; network details may appear.

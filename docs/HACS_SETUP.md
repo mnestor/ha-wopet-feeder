@@ -1,6 +1,6 @@
 # HACS integration setup
 
-Install and start the [Wopet Local Bridge](BRIDGE_SETUP.md) first.
+Install and start the [Wopet Feeder Bridge](BRIDGE_SETUP.md) first.
 
 ## Add the unlisted repository
 
@@ -9,11 +9,13 @@ Install and start the [Wopet Local Bridge](BRIDGE_SETUP.md) first.
 3. Enter:
 
    ```text
-   https://github.com/DrDronez/ha-wopet-local
+   https://github.com/mnestor/ha-wopet-feeder
    ```
 
 4. Select category **Integration** and choose **Add**.
-5. Search for **Wopet Local** and install it.
+5. Search for **Wopet Local (feeder)** and install it. It replaces the upstream
+   Wopet Local integration (same `wopet_local` domain); remove that one first
+   and do not let HACS update this one from the upstream repository.
 6. Restart Home Assistant when HACS requests it.
 
 This project is public so HACS can download it, but it has not been submitted
@@ -39,17 +41,25 @@ to HACS's default catalog. Add it as a custom repository using the steps above.
    - **Control port:** the bridge control port (`1986` by default);
    - **Control token:** the same private random value saved in the bridge app.
 
-The integration creates momentary Pan Left, Pan Right, and Dispense Treat
-button entities. Each button press sends one action. Treat dispensing does not
-repeat automatically.
+With the control token set, the integration creates:
+
+- a **Feed** button and a **Feed portions** number (1-4). Each press sends one
+  feed request and is never repeated automatically; a refusal because the bowl
+  is full is reported as an error;
+- for each of the six fixed meal slots: on/off, audio (with the clip file as an
+  attribute), time, portions (1-10), grid size and name.
+
+The schedule lives on the feeder. Home Assistant reads it every 6 hours and
+after each change; each command first starts a camera session, so allow 5 to 10
+seconds.
 
 The setup flow checks that the RTSP port is reachable before creating the
 camera entity. It never asks for or stores camera credentials.
 
 ## Dashboard
 
-After setup, add the created `camera` entity and any desired control buttons to
-the dashboard. Home Assistant consumes the RTSP URL through its stream
+After setup, add the created `camera` entity, the Feed button and the meal
+entities to the dashboard. Home Assistant consumes the RTSP URL through its stream
 integration. If experimental listen audio is enabled in the bridge, unmute the
 camera player to hear it.
 

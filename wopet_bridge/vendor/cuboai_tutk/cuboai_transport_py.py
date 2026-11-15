@@ -180,14 +180,23 @@ class PureSession:
         return self._inner.get_during_stream(name, timeout=timeout)
 
     def ioctl_during_stream(self, io_type: int, payload: bytes, *,
-                            resp_type=None, timeout: float = 2.5):
+                            resp_type=None, timeout: float = 2.5,
+                            retransmit: bool = True, interval: float = 0.4,
+                            match=None):
         """Send an IOCTL through the active reader thread safely."""
         return self._inner.ioctl_during_stream(
             io_type,
             bytes(payload),
             resp_type=resp_type,
             timeout=timeout,
+            retransmit=retransmit,
+            interval=interval,
+            match=match,
         )
+
+    def set_control_listener(self, callback) -> None:
+        """Receive (ts, io_type, first 96 decoded bytes) for inbound IO frames."""
+        self._inner._ctrl_log = callback
 
     def start_video(self) -> None:
         """Begin AV streaming for the legacy single-frame API.

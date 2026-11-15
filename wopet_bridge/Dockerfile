@@ -23,7 +23,7 @@ ARG BUILD_VERSION=dev
 ARG BUILD_ARCH=amd64
 
 LABEL \
-    io.hass.name="Wopet Local Bridge" \
+    io.hass.name="Wopet Feeder Bridge" \
     io.hass.description="Local TUTK/Kalay to RTSP bridge for supported Wopet cameras" \
     io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
@@ -37,4 +37,4 @@ COPY rootfs /
 COPY wopet /app/wopet
 COPY vendor /app/vendor
 
-RUN chmod 0755 /etc/services.d/wopet/run /app/wopet/wopet_stream.py
+RUN chmod 0755 /etc/services.d/wopet/run /etc/services.d/p2p/run /app/wopet/wopet_stream.py /app/wopet/p2p_responder.py

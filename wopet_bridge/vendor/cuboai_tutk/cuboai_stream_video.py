@@ -18,7 +18,7 @@ C/D windowed-ACK fix).
 Usage in go2rtc config (go2rtc.yaml):
     streams:
       cuboai_video:
-        - exec:python3 /path/to/cuboai_stream_video.py#{killsignal=SIGTERM}
+        - exec:python3 /path/to/cuboai_stream_video.py#killsignal=15#killtimeout=8
 
 Environment variables (required):
     CUBOAI_UID        Device UID (license_id from the REST API)
@@ -52,6 +52,7 @@ See also:
 
 import argparse
 import os
+import struct
 import sys
 
 # ── Locate our modules ────────────────────────────────────────────────────
@@ -106,6 +107,128 @@ def is_safe_hevc_annexb_au(au):
         if high & 0x80 or not low & 0x07:
             return False
     return True
+
+
+# ── Codec dispatch (Wopet feeder fork) ─────────────────────────────────────
+# Upstream's D100 camera sends HEVC; the WOPET Camera Pet Feeder sends H.264. Read
+# with the HEVC rules above, H.264 slice data fails the temporal_id test a few
+# frames into every GOP, which dropped all but ~4 frames per 2-second GOP (about
+# 2 fps of a 15 fps stream). CUBOAI_VIDEO_CODEC selects the rules; the default stays
+# HEVC for upstream behaviour.
+
+# Exit status when the feeder stops sending video; wopet_stream.py reconnects quickly.
+VIDEO_STALL_EXIT = 3
+
+
+def pacing_interval(arrivals, backlog):
+    """Seconds to wait after writing a frame: the recent mean frame interval, clamped,
+    shortened while frames are queued so latency cannot grow without bound."""
+    if len(arrivals) >= 2 and arrivals[-1] > arrivals[0]:
+        interval = (arrivals[-1] - arrivals[0]) / (len(arrivals) - 1)
+    else:
+        interval = 1 / 15
+    interval = min(max(interval, 0.025), 0.125)
+    if backlog > 15:
+        return 0.005
+    if backlog > 4:
+        return interval / 2
+    return interval
+
+
+def video_codec():
+    codec = os.environ.get('CUBOAI_VIDEO_CODEC', 'hevc').strip().lower()
+    return 'h264' if codec in ('h264', 'avc') else 'hevc'
+
+
+def _h264_nal_spans(au):
+    """(start, end) of each NAL payload in an Annex-B AU, or None if it does not start at 0."""
+    starts = []
+    i = 0
+    while i <= len(au) - 3:
+        if au[i:i + 4] == b'\x00\x00\x00\x01':
+            starts.append((i, 4))
+            i += 4
+        elif au[i:i + 3] == b'\x00\x00\x01':
+            starts.append((i, 3))
+            i += 3
+        else:
+            i += 1
+    if not starts or starts[0][0] != 0:
+        return None
+    return [
+        (off + n, starts[k + 1][0] if k + 1 < len(starts) else len(au))
+        for k, (off, n) in enumerate(starts)
+    ]
+
+
+def is_h264_annexb_keyframe(au):
+    """An H.264 AU that can open a stream: it carries an SPS (7) or an IDR slice (5)."""
+    spans = _h264_nal_spans(au)
+    return bool(spans) and any(e > s and au[s] & 0x1f in (5, 7) for s, e in spans)
+
+
+def is_safe_h264_annexb_au(au):
+    """Every NAL has its header byte and a clear forbidden bit."""
+    spans = _h264_nal_spans(au)
+    return bool(spans) and all(e > s and not au[s] & 0x80 for s, e in spans)
+
+
+H264_FRAMEINFO_LEN = 16
+
+
+def strip_h264_frameinfo(au):
+    """Drop the feeder's 16-byte TUTK FRAMEINFO trailer from an H.264 access unit.
+
+    The feeder appends the older 16-byte struct (codec_id u16 = 0x4e/H.264, flags,
+    cam_index, onlineNum, reserve1[3], reserve2 u32, timestamp u32 ms), not the 24-byte
+    one the upstream strip recognises. Left in, its timestamp bytes sometimes form an
+    Annex-B start code and go2rtc cuts fake NAL units out of it ("slice type 32 too
+    large" in decoders). Only strip when codec, cam_index and reserve2 all match, so
+    slice data is never cut.
+    """
+    n = H264_FRAMEINFO_LEN
+    if len(au) < n + 5:
+        return au
+    tail = au[-n:]
+    if tail[0] == 0x4E and tail[1] == 0x00 and tail[3] == 0x00 and tail[9:12] == b'\x00\x00\x00':
+        return au[:-n]
+    return au
+
+
+def h264_frameinfo(au):
+    """Strip the feeder's 16-byte trailer and return (au, frameinfo or None).
+
+    The frameinfo carries the trailer's millisecond timestamp (offset 12), so the
+    MPEG-TS path can stamp frames with the camera clock instead of arrival time.
+    """
+    stripped = strip_h264_frameinfo(au)
+    if stripped is au:
+        return au, None
+    kf = is_h264_annexb_keyframe(stripped)
+    return stripped, {
+        'codec_id': 0x4E,
+        'codec': 'h264',
+        'timestamp_ms': struct.unpack_from('<I', au, len(au) - 4)[0],
+        'ts_valid': True,
+        'keyframe': kf,
+        'is_keyframe': kf,
+    }
+
+
+# Audio and video trailer clocks further apart than this are not the same clock.
+AUDIO_TS_MAX_SKEW_MS = 3000
+
+
+def opens_annexb_stream(au):
+    if video_codec() == 'h264':
+        return is_h264_annexb_keyframe(au)
+    return is_annexb_keyframe(au)
+
+
+def is_safe_annexb_au(au):
+    if video_codec() == 'h264':
+        return is_safe_h264_annexb_au(au)
+    return is_safe_hevc_annexb_au(au)
 
 
 # ── Production env profile ─────────────────────────────────────────────────
@@ -324,7 +447,7 @@ def mux_timed_stream(frames_timed, emit, *, clean_gop=True, mux_audio=False, log
     from cuboai_mpegts import TSMuxer
 
     def _nal_kf(au):
-        return is_annexb_keyframe(au)
+        return opens_annexb_stream(au)
 
     # AVTimeline is the single source of truth for shared-base A/V PTS (also used by
     # cuboai_pure.record_video) so the live stream and a saved .mp4 stay in lockstep. Its audio
@@ -333,6 +456,22 @@ def mux_timed_stream(frames_timed, emit, *, clean_gop=True, mux_audio=False, log
     avc = AVTimeline(audio_nominal_ms=(50.0 if wopet_pcm else 64.0))
     mux = None; _warned = False
     audio_primed = False
+    # Wopet feeder (H.264): strip the 16-byte trailer here too, take PTS from its
+    # timestamp, and drop damaged AUs until the next keyframe (as the Annex-B path does).
+    h264 = video_codec() == 'h264'
+    h264_waiting = True
+    last_video_ts = None
+    audio_ts_mode = None
+    # CUBOAI_AV_DEBUG=<file>: trace kind, camera timestamp and PTS of the first 20000 AUs.
+    _dbg_path = os.environ.get('CUBOAI_AV_DEBUG')
+    _dbg = open(_dbg_path, 'w', buffering=1) if _dbg_path else None
+    _dbg_n = [0]
+
+    def _trace(kind, ts, pts_ms):
+        if _dbg is not None and _dbg_n[0] < 20000:
+            _dbg_n[0] += 1
+            import time as _t
+            _dbg.write(f"{_t.time():.3f} {kind} {ts} {pts_ms:.1f}\n")
     synced = not clean_gop; _cg_drop = 0
     psi_now = [0]                                # monotonic PSI cadence clock (audio path only)
 
@@ -347,7 +486,17 @@ def mux_timed_stream(frames_timed, emit, *, clean_gop=True, mux_audio=False, log
                 continue
             if (fi or {}).get('codec') == 'pcm_s16le':
                 data = pcm_s16le_to_alaw(data)
-            ta = avc.audio(fi)                       # shared-base; lost trailer → AAC-cadence interp
+            ats = (fi or {}).get('timestamp_ms') if h264 else None
+            if ats is not None and last_video_ts is not None:
+                use_ts = abs(ats - last_video_ts) <= AUDIO_TS_MAX_SKEW_MS
+                if use_ts != audio_ts_mode:
+                    audio_ts_mode = use_ts
+                    log("[mux_audio] audio PTS from the " +
+                        ("camera clock" if use_ts else "frame cadence (trailer clock disagrees with video)"))
+                ta = avc.audio_ms(ats) if use_ts else avc.audio(None)
+            else:
+                ta = avc.audio(fi)                   # shared-base; lost trailer → AAC-cadence interp
+            _trace('a', ats, ta['pts_ms'])
             now = max(psi_now[0], int(ta['pts_ms'])); psi_now[0] = now
             emit(mux.mux_audio_au(data, ta['pts_90k'], now_ms=now))
             if audio_tap is not None:
@@ -355,8 +504,20 @@ def mux_timed_stream(frames_timed, emit, *, clean_gop=True, mux_audio=False, log
             continue
         if kind != 'video':
             continue
+        if h264:
+            if fi is None:
+                data, fi = h264_frameinfo(data)
+            if h264_waiting:
+                if not opens_annexb_stream(data):
+                    continue
+                h264_waiting = False
+            elif not is_safe_annexb_au(data):
+                h264_waiting = True
+                continue
+            if fi is not None:
+                last_video_ts = fi['timestamp_ms']
         if mux is None:
-            codec = (fi or {}).get('codec', 'hevc')
+            codec = (fi or {}).get('codec') or video_codec()
             audio_codec = ('pcma' if wopet_pcm else 'aac') if mux_audio else None
             mux = TSMuxer(codec=codec, audio_codec=audio_codec)
             log(f"[mpegts] muxing {codec}{'+' + audio_codec if audio_codec else ''} → MPEG-TS with FRAMEINFO PTS "
@@ -396,6 +557,7 @@ def mux_timed_stream(frames_timed, emit, *, clean_gop=True, mux_audio=False, log
         if mux_audio and wopet_pcm and not audio_primed:
             emit(mux.mux_audio_au(b'\xd5' * 400, t['pts_90k'], now_ms=now))
             audio_primed = True
+        _trace('v', (fi or {}).get('timestamp_ms'), t['pts_ms'])
         emit(mux.mux_au(data, t['pts_90k'], keyframe=t['keyframe'], now_ms=now))
         if tap is not None:
             tap(t['pts_90k'], t['keyframe'], t['pts_ms'])
@@ -511,14 +673,81 @@ def main() -> None:
     if _ets:
         _etsf = open(_ets, 'w', buffering=1)
 
-    def _emit(data):
+    # Stalled-consumer watchdog (WOPET feeder build): when go2rtc gives up on this
+    # producer it can stop reading stdout without killing us. The write then blocks
+    # forever, the session stops servicing camera replies, yet the control port stays
+    # bound and reports healthy. Exit if a single write has been stuck too long.
+    import queue as _queue_mod
+    import threading as _threading
+    _stall_limit = float(os.environ.get('WOPET_STDOUT_STALL_SECS', '15'))
+    _write_started = [0.0]
+
+    # Wopet feeder fork: a session the feeder stops serving (seen right after a restart,
+    # while the feeder still held the previous sessions) stays open with no video and
+    # never recovers. With go2rtc's preload nothing else restarts it, so exit with
+    # VIDEO_STALL_EXIT and let the wrapper reconnect.
+    _video_limit = float(os.environ.get('WOPET_VIDEO_STALL_SECS', '20'))
+    _last_video = [_time.time()]
+
+    def _stall_watchdog():
+        while True:
+            _time.sleep(1.0)
+            began = _write_started[0]
+            if began and _time.time() - began > _stall_limit:
+                print(f"stdout stalled {_stall_limit:.0f}s (no consumer); exiting",
+                      file=sys.stderr, flush=True)
+                os._exit(0)
+            if _video_limit > 0 and _time.time() - _last_video[0] > _video_limit:
+                print(f"no video from the feeder for {_video_limit:.0f}s; exiting to reconnect",
+                      file=sys.stderr, flush=True)
+                os._exit(VIDEO_STALL_EXIT)
+
+    _threading.Thread(target=_stall_watchdog, name="stdout-watchdog", daemon=True).start()
+
+    def _write(data):
         if _etsf is not None:
             _etsf.write(f"{_time.time():.6f}\n")
+        _write_started[0] = _time.time()
         stdout.write(data)
         stdout.flush()
+        _write_started[0] = 0.0
+
+    # Output pacing (Wopet feeder fork, CUBOAI_PACE_OUTPUT=1). go2rtc's raw Annex-B
+    # reader stamps each frame with the time it reads it. Loss recovery releases frames
+    # in bursts, so several frames got the same timestamp and RTSP clients merged them
+    # into one picture (decode errors, dropped frames). The pacer writes frames at the
+    # measured frame rate and catches up when a backlog builds; it never drops a frame.
+    _pace = os.environ.get('CUBOAI_PACE_OUTPUT', '0') != '0'
+    if _pace:
+        import collections as _collections
+        _pace_q = _queue_mod.Queue()
+
+        def _pacer():
+            arrivals = _collections.deque(maxlen=30)
+            while True:
+                t_in, data = _pace_q.get()
+                arrivals.append(t_in)
+                started = _time.time()
+                try:
+                    _write(data)
+                except (BrokenPipeError, OSError):
+                    os._exit(0)          # go2rtc closed the pipe
+                interval = pacing_interval(list(arrivals), _pace_q.qsize())
+                rest = interval - (_time.time() - started)
+                if rest > 0:
+                    _time.sleep(rest)
+
+        _threading.Thread(target=_pacer, name="output-pacer", daemon=True).start()
+
+    def _emit(data):
+        _last_video[0] = _time.time()
+        if _pace:
+            _pace_q.put((_last_video[0], data))
+        else:
+            _write(data)
 
     # ── SIGTERM → clean teardown (B-1) ────────────────────────────────────
-    # go2rtc stops an exec: source with SIGTERM (see the recipe above, killsignal=SIGTERM).
+    # go2rtc stops an exec: source with SIGTERM (see the recipe above, killsignal=15; go2rtc needs the number).
     # Python's DEFAULT SIGTERM action terminates the process WITHOUT unwinding, so the
     # `finally: sess.disconnect()` below — the 3x build_close session-stop burst — is skipped
     # on every normal stream stop. Route SIGTERM into the SAME path SIGINT already takes:
@@ -550,16 +779,21 @@ def main() -> None:
             # the validator). clean-GOP (default on) drops incomplete AUs until the next clean IDR.
             clean_gop = os.environ.get('CUBOAI_CLEAN_GOP', '1') != '0'
             mux_audio = os.environ.get('CUBOAI_MUX_AUDIO', '0') != '0'
-            mux_timed_stream(sess.av_frames_timed(), _emit, clean_gop=clean_gop, mux_audio=mux_audio)
+            # Unpaced (the PTS carries the timing); only video feeds the no-video watchdog.
+            mux_timed_stream(sess.av_frames_timed(), _write, clean_gop=clean_gop, mux_audio=mux_audio,
+                             tap=lambda *_a: _last_video.__setitem__(0, _time.time()))
         else:
             waiting_for_keyframe = True
+            strip_trailer = video_codec() == 'h264'
             for frame_type, data in sess.av_frames():
                 if frame_type == 'video':
+                    if strip_trailer:
+                        data = strip_h264_frameinfo(data)
                     if waiting_for_keyframe:
-                        if not is_annexb_keyframe(data):
+                        if not opens_annexb_stream(data):
                             continue
                         waiting_for_keyframe = False
-                    elif not is_safe_hevc_annexb_au(data):
+                    elif not is_safe_annexb_au(data):
                         waiting_for_keyframe = True
                         continue
                     _emit(data)

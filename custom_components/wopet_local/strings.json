@@ -36,12 +36,5 @@
     "error": {
       "cannot_connect": "Cannot connect to the bridge RTSP port. Confirm the app is running and use the HAOS host address rather than 127.0.0.1."
     }
-  },
-  "entity": {
-    "button": {
-      "pan_left": {"name": "Pan left"},
-      "pan_right": {"name": "Pan right"},
-      "dispense_treat": {"name": "Dispense treat"}
-    }
   }
 }

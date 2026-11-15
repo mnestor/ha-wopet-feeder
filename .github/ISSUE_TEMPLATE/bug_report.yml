@@ -12,7 +12,7 @@ body:
     id: model
     attributes:
       label: Camera model and firmware
-      placeholder: D100 / 40.23.6.5
+      placeholder: Camera Pet Feeder / 40.0.14.3
     validations:
       required: true
   - type: input

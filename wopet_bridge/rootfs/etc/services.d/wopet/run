@@ -9,6 +9,10 @@ stream_name="$(bashio::config 'stream_name')"
 rtsp_port="$(bashio::config 'rtsp_port')"
 log_level="$(bashio::config 'log_level')"
 control_port="$(bashio::config 'control_port')"
+preload_stream="true"
+if bashio::config.exists 'preload_stream' && ! bashio::config.true 'preload_stream'; then
+    preload_stream="false"
+fi
 
 go2rtc_log_level="info"
 if [[ "${log_level}" == "debug" ]]; then
@@ -37,8 +41,16 @@ rtsp:
   listen: ":${rtsp_port}"
 streams:
   ${stream_name}:
-    - "exec:python3 /app/wopet/wopet_stream.py#killsignal=SIGTERM"
+    # killsignal must be numeric: go2rtc parses it with Atoi, so "SIGTERM" became
+    # signal 0 and stopped producers were never killed (orphaned sessions).
+    - "exec:python3 /app/wopet/wopet_stream.py#killsignal=15#killtimeout=8"
 EOF
+
+if [[ "${preload_stream}" == "true" ]]; then
+    # Keep one feeder session open. Starting it takes 3-5 s; RTSP clients that give
+    # up sooner would otherwise start and kill a session each time they retry.
+    printf 'preload:\n  %s: "video"\n' "${stream_name}" >> /data/go2rtc.yaml
+fi
 
 export WOPET_OPTIONS_FILE=/data/options.json
 bashio::log.info "Starting local bridge for stream '${stream_name}'"

@@ -1,4 +1,3 @@
-name: Wopet Local
-url: https://github.com/DrDronez/ha-wopet-local
-maintainer: DrDronez
-
+name: Wopet Feeder (local)
+url: https://github.com/mnestor/ha-wopet-feeder
+maintainer: mnestor

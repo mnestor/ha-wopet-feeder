@@ -1,0 +1,15 @@
+[Unit]
+Description=Wopet feeder software motion trigger for HomeKit Secure Video
+After=network-online.target homebridge.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/default/wopet-motion
+ExecStart=/usr/bin/python3 /usr/local/bin/wopet_motion.py
+Restart=always
+RestartSec=10
+DynamicUser=yes
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

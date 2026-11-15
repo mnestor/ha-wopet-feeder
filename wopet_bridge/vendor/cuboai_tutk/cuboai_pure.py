@@ -523,6 +523,8 @@ def _parse_wopet_pcm_frame(unit: bytes):
         "sample_rate": rates[rate_index],
         "channels": 2 if flags & 0x01 else 1,
         "ts_valid": False,
+        # Same struct as the video trailer: offset 12 is a millisecond timestamp.
+        "timestamp_ms": struct.unpack_from("<I", fi, 12)[0],
         "trailer_len": 16,
     }
 
@@ -1749,10 +1751,18 @@ class _StreamGet:
     these slots, the reader sends it and captures the matching response, and the
     requester waits on `done`. Read-only telemetry path — see get_during_stream().
     """
-    __slots__ = ('io_type', 'payload', 'resp_type', 'sent', 'last_tx', 'done', 'result')
+    __slots__ = ('io_type', 'payload', 'resp_type', 'sent', 'last_tx', 'done', 'result',
+                 'retransmit', 'interval', 'match')
 
-    def __init__(self, io_type, payload, resp_type=None):
+    def __init__(self, io_type, payload, resp_type=None, retransmit=True,
+                 interval=0.4, match=None):
         self.io_type = io_type
+        # False = send exactly once (physical actions such as a feed must never repeat).
+        self.retransmit = retransmit
+        self.interval = interval
+        # Optional predicate on the response payload, to skip a late duplicate reply
+        # to an earlier request that has the same response type.
+        self.match = match
         self.payload = payload
         self.resp_type = io_type | 1 if resp_type is None else resp_type
         self.sent = False
@@ -3231,7 +3241,8 @@ class TUTKDirectSession:
             finally:
                 self._get_inject = None                 # retire the slot
 
-    def ioctl_during_stream(self, io_type, payload, *, resp_type=None, timeout=2.5):
+    def ioctl_during_stream(self, io_type, payload, *, resp_type=None, timeout=2.5,
+                            retransmit=True, interval=0.4, match=None):
         """Send one IOCTL safely through the active stream reader.
 
         The AV reader owns the socket while streaming. This method queues a command
@@ -3244,7 +3255,8 @@ class TUTKDirectSession:
         if th is None or not th.is_alive():
             raise RuntimeError("camera stream is not active")
         with self._inject_lock:
-            gi = _StreamGet(io_type, payload, resp_type=resp_type)
+            gi = _StreamGet(io_type, payload, resp_type=resp_type, retransmit=retransmit,
+                            interval=interval, match=match)
             self._get_inject = gi
             try:
                 if not gi.done.wait(timeout):
@@ -3752,7 +3764,7 @@ class TUTKDirectSession:
                 gi = self._get_inject
                 if gi is not None and not gi.done.is_set():
                     now2 = time.time()
-                    if not gi.sent or now2 - gi.last_tx > 0.4:   # initial send / retransmit
+                    if not gi.sent or (gi.retransmit and now2 - gi.last_tx > gi.interval):   # initial send / retransmit
                         self._sock.sendto(
                             build_ioctl_data(self._R, self._seq, self._relseq,
                                              self._frmno, gi.io_type, gi.payload),
@@ -3816,8 +3828,10 @@ class TUTKDirectSession:
                                 and len(dec) >= 68
                                 and struct.unpack_from("<H", dec, 64)[0] == gi.resp_type):
                             avlen = struct.unpack_from("<H", dec, 52)[0]
-                            gi.result = bytes(dec[68:min(len(dec), 68 + max(0, avlen - 4))])
-                            gi.done.set()
+                            body = bytes(dec[68:min(len(dec), 68 + max(0, avlen - 4))])
+                            if gi.match is None or gi.match(body):
+                                gi.result = body
+                                gi.done.set()
                         continue
                     idx = raw_idx = struct.unpack("<H", dec[56:58])[0]
                     if self._idx_modular:                 # H1: lift the u16 index into done_upto's

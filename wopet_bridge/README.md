@@ -1,7 +1,8 @@
-# Wopet Local Bridge
+# Wopet Feeder Bridge
 
-Pure-Python TUTK/Kalay to RTSP bridge for supported Wopet cameras.
+Local video, feeding and schedule control for the WOPET Camera Pet Feeder, with
+no cloud. Pure-Python TUTK/Kalay client, go2rtc RTSP output, an authenticated
+control API, and local answers to the feeder's P2P server queries.
 
-This app is experimental and currently validated only with the Wopet Guardian
-Plus D100 on firmware `40.23.6.5`. Read the **Documentation** tab before setup.
-
+Experimental; validated on one feeder with firmware `40.0.14.3`. Read the
+**Documentation** tab before setup.

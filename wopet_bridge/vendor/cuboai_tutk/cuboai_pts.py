@@ -210,6 +210,12 @@ class AVTimeline:
             return self._a.feed(timestamp_ms=ms, ts_valid=True, is_keyframe=True)
         return self._a.feed(timestamp_ms=None, ts_valid=False, is_keyframe=True)
 
+    def audio_ms(self, ts_ms):
+        """Audio PTS from a millisecond timestamp on the video clock (Wopet feeder trailers)."""
+        if self._base is None:
+            return self._a.feed(timestamp_ms=None, ts_valid=False, is_keyframe=True)
+        return self._a.feed(timestamp_ms=ts_ms, ts_valid=True, is_keyframe=True)
+
     def stats(self):
         return self._v.stats()
 

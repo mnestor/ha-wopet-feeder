@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-import struct
+import re
 import sys
 from pathlib import Path
 
@@ -61,79 +61,6 @@ def test_wopet_wrapper_defaults_to_native_hevc_and_can_enable_audio() -> None:
     source = (ROOT / "wopet_bridge/wopet/wopet_stream.py").read_text(encoding="utf-8")
     assert '"mpegts" if audio_enabled else "annexb"' in source
     assert '"1" if audio_enabled else "0"' in source
-
-
-def test_wopet_control_commands_match_sanitized_capture() -> None:
-    """Pan and single-treat actions must retain their captured IOCTL layouts."""
-    module_path = ROOT / "wopet_bridge/wopet/wopet_control.py"
-    spec = importlib.util.spec_from_file_location("wopet_control", module_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    left = module.CONTROL_COMMANDS["pan_left"]
-    right = module.CONTROL_COMMANDS["pan_right"]
-    treat = module.CONTROL_COMMANDS["dispense_treat"]
-
-    assert (left[0], struct.unpack("<III", left[1]), left[2]) == (
-        0x5047,
-        (1, 1, 10),
-        0x5048,
-    )
-    assert (right[0], struct.unpack("<III", right[1]), right[2]) == (
-        0x5047,
-        (1, 0, 10),
-        0x5048,
-    )
-    assert (treat[0], struct.unpack("<I", treat[1]), treat[2]) == (
-        0x5043,
-        (1,),
-        0x5044,
-    )
-    assert "talk" not in module.CONTROL_COMMANDS
-
-
-def test_control_executes_one_command_and_checks_camera_result() -> None:
-    """The treat action is one request, never an automatic repeat."""
-    module_path = ROOT / "wopet_bridge/wopet/wopet_control.py"
-    spec = importlib.util.spec_from_file_location("wopet_control_execute", module_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class Session:
-        calls = []
-
-        def ioctl_during_stream(self, io_type, payload, *, resp_type, timeout):
-            self.calls.append((io_type, payload, resp_type, timeout))
-            return resp_type, struct.pack("<II", 0, 1)
-
-    session = Session()
-    assert module.execute_control(session, "dispense_treat") == {
-        "ok": True,
-        "action": "dispense_treat",
-    }
-    assert len(session.calls) == 1
-
-
-def test_control_health_uses_wrapped_transport_reader() -> None:
-    module_path = ROOT / "wopet_bridge/wopet/wopet_control.py"
-    spec = importlib.util.spec_from_file_location("wopet_control_health", module_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    class Reader:
-        def is_alive(self):
-            return True
-
-    class Transport:
-        _av_reader_thread = Reader()
-
-    class Session:
-        _inner = Transport()
-
-    assert module._stream_is_ready(Session()) is True
 
 
 def test_pure_session_forwards_live_control_ioctl() -> None:
@@ -210,7 +137,8 @@ def test_wopet_wrapper_supervises_the_stream_with_bounded_backoff() -> None:
 
     source = inspect.getsource(wrapper.main)
     assert "subprocess.Popen" in source
-    assert "child.terminate()" in source
+    assert "proc.terminate()" in source
+    assert "proc.kill()" in source
 
 
 def test_wopet_wrapper_persists_backoff_across_go2rtc_respawns(tmp_path: Path) -> None:
@@ -259,7 +187,7 @@ def test_annexb_stream_waits_for_a_safe_hevc_opening_frame() -> None:
 
     source = inspect.getsource(module.main)
     assert "waiting_for_keyframe = True" in source
-    assert "if not is_annexb_keyframe(data)" in source
+    assert "if not opens_annexb_stream(data)" in source
 
 
 def test_annexb_stream_rejects_short_or_invalid_hevc_nalus() -> None:
@@ -279,4 +207,182 @@ def test_annexb_stream_rejects_short_or_invalid_hevc_nalus() -> None:
     assert not module.is_safe_hevc_annexb_au(invalid_tid)
 
     source = inspect.getsource(module.main)
-    assert "elif not is_safe_hevc_annexb_au(data)" in source
+    assert "elif not is_safe_annexb_au(data)" in source
+
+
+def test_wrapper_detects_a_closed_feeder_port() -> None:
+    """Port-unreachable means the feeder's P2P service is restarting: wait, don't back off."""
+    import socket
+
+    wrapper_path = ROOT / "wopet_bridge/wopet/wopet_stream.py"
+    spec = importlib.util.spec_from_file_location("wopet_stream_probe", wrapper_path)
+    assert spec is not None and spec.loader is not None
+    wrapper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        open_port = listener.getsockname()[1]
+        assert wrapper._feeder_listening("127.0.0.1", open_port) is True
+    assert wrapper._feeder_listening("127.0.0.1", open_port) is False
+
+
+def test_pure_session_supports_send_once_and_reply_matching() -> None:
+    """Feeds must never be retransmitted; plan acks are matched by content."""
+    source = (ROOT / "wopet_bridge/vendor/cuboai_tutk/cuboai_pure.py").read_text(encoding="utf-8")
+    assert "gi.retransmit and now2 - gi.last_tx > gi.interval" in source
+    assert "if gi.match is None or gi.match(body):" in source
+
+
+def test_streamer_exits_when_go2rtc_stops_reading() -> None:
+    """An orphaned producer must not keep the control port while serving nobody."""
+    source = (
+        ROOT / "wopet_bridge/vendor/cuboai_tutk/cuboai_stream_video.py"
+    ).read_text(encoding="utf-8")
+    assert "WOPET_STDOUT_STALL_SECS" in source
+    assert "os._exit(0)" in source
+
+
+def _load_stream_video(name: str):
+    module_path = ROOT / "wopet_bridge/vendor/cuboai_tutk/cuboai_stream_video.py"
+    spec = importlib.util.spec_from_file_location(name, module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_h264_aus_are_not_judged_by_hevc_rules(monkeypatch) -> None:
+    """The feeder's H.264 P-slices must pass; HEVC rules dropped most of each GOP."""
+    module = _load_stream_video("wopet_cuboai_stream_h264")
+    sps_pps_idr = bytes.fromhex("00000001274d001fe7" "0000000128ee3c80" "0000000125888040ff")
+    # P-slice whose second byte has the low three bits clear: an "invalid HEVC
+    # temporal_id", but ordinary H.264 slice-header bits.
+    p_slice = bytes.fromhex("00000001219800c0ffee")
+    forbidden = bytes.fromhex("00000001a19a00")
+    empty_nal = bytes.fromhex("0000000121" "00000001")
+    mid_gop = p_slice
+
+    assert not module.is_safe_hevc_annexb_au(p_slice)   # the old drop
+
+    monkeypatch.setenv("CUBOAI_VIDEO_CODEC", "h264")
+    assert module.opens_annexb_stream(sps_pps_idr)
+    assert not module.opens_annexb_stream(mid_gop)
+    assert module.is_safe_annexb_au(sps_pps_idr)
+    assert module.is_safe_annexb_au(p_slice)
+    assert not module.is_safe_annexb_au(forbidden)
+    assert not module.is_safe_annexb_au(empty_nal)
+    assert not module.is_safe_annexb_au(b"\x21\x98")  # no start code
+
+    monkeypatch.setenv("CUBOAI_VIDEO_CODEC", "hevc")
+    assert not module.is_safe_annexb_au(p_slice)
+
+
+def test_bridge_selects_h264_rules() -> None:
+    source = (ROOT / "wopet_bridge/wopet/wopet_stream.py").read_text(encoding="utf-8")
+    assert 'os.environ["CUBOAI_VIDEO_CODEC"] = "h264"' in source
+
+
+def test_go2rtc_kill_signal_is_numeric() -> None:
+    """go2rtc parses killsignal with Atoi; a name becomes signal 0 and never stops the producer."""
+    run = (ROOT / "wopet_bridge/rootfs/etc/services.d/wopet/run").read_text(encoding="utf-8")
+    match = re.search(r"exec:python3 /app/wopet/wopet_stream\.py#killsignal=(\w+)", run)
+    assert match is not None
+    assert match.group(1) == "15"
+    assert "#killtimeout=" in run
+
+
+def test_stream_preload_is_on_by_default() -> None:
+    import yaml
+
+    config = yaml.safe_load((ROOT / "wopet_bridge/config.yaml").read_text(encoding="utf-8"))
+    assert config["options"]["preload_stream"] is True
+    assert config["schema"]["preload_stream"] == "bool?"
+    run = (ROOT / "wopet_bridge/rootfs/etc/services.d/wopet/run").read_text(encoding="utf-8")
+    assert "preload:" in run and ">> /data/go2rtc.yaml" in run
+
+
+def test_video_stall_exit_reconnects_quickly() -> None:
+    """A session that stops delivering video exits with a code the wrapper retries soon."""
+    streamer = _load_stream_video("wopet_cuboai_stream_stall")
+    wrapper_src = (ROOT / "wopet_bridge/wopet/wopet_stream.py").read_text(encoding="utf-8")
+    match = re.search(r"^VIDEO_STALL_EXIT = (\d+)$", wrapper_src, re.MULTILINE)
+    assert match is not None
+    assert int(match.group(1)) == streamer.VIDEO_STALL_EXIT
+    assert "return_code == VIDEO_STALL_EXIT" in wrapper_src
+    source = inspect.getsource(streamer.main)
+    assert "os._exit(VIDEO_STALL_EXIT)" in source
+    assert "_last_video[0] = _time.time()" in source
+
+
+def test_output_pacing_interval() -> None:
+    module = _load_stream_video("wopet_cuboai_stream_pace")
+    steady = [i / 15 for i in range(30)]
+    assert abs(module.pacing_interval(steady, 0) - 1 / 15) < 1e-9
+    burst = [0.0, 0.0, 0.0, 0.0, 2.0]          # 5 frames in 2 s, four at once
+    assert abs(module.pacing_interval(burst, 0) - 0.125) < 1e-9   # clamped
+    assert module.pacing_interval([0.0], 0) == 1 / 15             # no history yet
+    assert module.pacing_interval(steady, 5) == (1 / 15) / 2       # catching up
+    assert module.pacing_interval(steady, 16) == 0.005
+    assert module.pacing_interval([0.0, 0.001], 0) == 0.025        # floor
+
+
+def test_bridge_paces_output() -> None:
+    source = (ROOT / "wopet_bridge/wopet/wopet_stream.py").read_text(encoding="utf-8")
+    assert 'os.environ["CUBOAI_PACE_OUTPUT"] = "1"' in source
+
+
+def test_feeder_frameinfo_trailer_is_stripped() -> None:
+    module = _load_stream_video("wopet_cuboai_stream_trailer")
+    frame = bytes.fromhex("0000000141e2ffee0011")
+    trailer = bytes.fromhex("4e000000030100000300000096f392df")   # as captured, 16 bytes
+    assert module.strip_h264_frameinfo(frame + trailer) == frame
+    assert module.strip_h264_frameinfo(frame) == frame                 # nothing to strip
+    lookalike = bytes.fromhex("4e000000030100000301000096f392df")  # reserve2 not small
+    assert module.strip_h264_frameinfo(frame + lookalike) == frame + lookalike
+    source = inspect.getsource(module.main)
+    assert "data = strip_h264_frameinfo(data)" in source
+
+
+def test_audio_path_strips_trailer_and_uses_camera_clock(monkeypatch) -> None:
+    """With audio on (MPEG-TS), the H.264 trailer must go and PTS follow its timestamp."""
+    monkeypatch.setenv("CUBOAI_VIDEO_CODEC", "h264")
+    monkeypatch.setenv("CUBOAI_WOPET_AUDIOSTART", "1")
+    module = _load_stream_video("wopet_cuboai_stream_ts_audio")
+
+    def trailer(ts_ms: int) -> bytes:
+        return bytes.fromhex("4e0000000301000003000000") + ts_ms.to_bytes(4, "little")
+
+    idr = bytes.fromhex("00000001274d001fe7" "0000000128ee3c80" "0000000125888040ff")
+    p_slice = bytes.fromhex("0000000141e2ffee0011")
+    broken = bytes.fromhex("0000000141e2") + b"\x00\x00\x01\x80"   # forbidden bit set
+    pcm = {"codec": "pcm_s16le", "ts_valid": False, "timestamp_ms": 1_000_030}
+    frames = [
+        ("video", p_slice + trailer(999_900), None),       # before the first keyframe: dropped
+        ("video", idr + trailer(1_000_000), None),
+        ("audio", b"\x00\x00" * 400, pcm),
+        ("video", p_slice + trailer(1_000_066), None),
+        ("video", broken + trailer(1_000_133), None),       # damaged: dropped, wait for IDR
+        ("video", p_slice + trailer(1_000_200), None),      # still waiting: dropped
+        ("video", idr + trailer(1_000_266), None),
+    ]
+    out: list[bytes] = []
+    video_pts: list[float] = []
+    audio_pts: list[float] = []
+    module.mux_timed_stream(
+        iter(frames), out.append, clean_gop=False, mux_audio=True, log=lambda _m: None,
+        tap=lambda _p, _k, ms: video_pts.append(ms),
+        audio_tap=lambda _p, _k, ms: audio_pts.append(ms),
+    )
+    assert video_pts == [0.0, 66.0, 266.0]
+    assert audio_pts == [30.0]
+    assert trailer(1_000_066) not in b"".join(out)
+
+
+def test_h264_frameinfo_reads_trailer_timestamp() -> None:
+    module = _load_stream_video("wopet_cuboai_stream_fi")
+    frame = bytes.fromhex("0000000141e2ffee0011")
+    au, fi = module.h264_frameinfo(frame + bytes.fromhex("4e000000030100000300000096f392df"))
+    assert au == frame
+    assert fi is not None and fi["timestamp_ms"] == 0xDF92F396 and fi["ts_valid"]
+    assert module.h264_frameinfo(frame) == (frame, None)

@@ -20,3 +20,7 @@ options.local.json
 *.ts
 *.mp4
 
+
+# Local secrets and media from feeder work
+*credentials*.env
+*.wav

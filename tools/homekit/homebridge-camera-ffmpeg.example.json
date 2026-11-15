@@ -1,0 +1,24 @@
+{
+  "platform": "Camera-ffmpeg",
+  "name": "Camera FFmpeg",
+  "porthttp": 8899,
+  "localhttp": true,
+  "cameras": [
+    {
+      "name": "Cat Feeder",
+      "manufacturer": "WOPET",
+      "model": "Camera Pet Feeder",
+      "motion": true,
+      "motionTimeout": 30,
+      "videoConfig": {
+        "source": "-rtsp_transport tcp -i rtsp://192.0.2.100:8554/wopet",
+        "maxWidth": 1280,
+        "maxHeight": 720,
+        "maxFPS": 15,
+        "audio": false,
+        "recording": true,
+        "prebuffer": false
+      }
+    }
+  ]
+}

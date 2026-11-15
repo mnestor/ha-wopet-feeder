@@ -22,6 +22,7 @@ unsafe camera controls.
 ## Scope
 
 Only test devices and accounts you own or are explicitly authorized to test.
-Treat dispensing and other physical actions are excluded from the initial
-release until explicit safeguards and confirmation semantics are implemented.
+Feeding is a physical action. The bridge sends each feed request exactly once
+and never retries it; automations that press Feed should guard against repeats.
+The P2P responder answers only the configured camera IP and UID.
 

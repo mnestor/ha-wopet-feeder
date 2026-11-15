@@ -1,12 +1,16 @@
 {
   "domain": "wopet_local",
-  "name": "Wopet Local",
-  "codeowners": ["@DrDronez"],
+  "name": "Wopet Local (feeder)",
+  "codeowners": [
+    "@mnestor"
+  ],
   "config_flow": true,
-  "dependencies": ["stream"],
-  "documentation": "https://github.com/DrDronez/ha-wopet-local",
+  "dependencies": [
+    "stream"
+  ],
+  "documentation": "https://github.com/mnestor/ha-wopet-feeder",
   "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/DrDronez/ha-wopet-local/issues",
-  "version": "0.2.10"
+  "issue_tracker": "https://github.com/mnestor/ha-wopet-feeder/issues",
+  "version": "0.3.1"
 }

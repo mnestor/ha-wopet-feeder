@@ -1,12 +1,29 @@
-"""Wopet Local integration."""
+"""Wopet Local integration (WOPET camera feeder: video, feed, schedule)."""
 
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
 
-PLATFORMS = (Platform.CAMERA, Platform.BUTTON)
+from .const import (
+    CONF_CONTROL_PORT,
+    CONF_CONTROL_TOKEN,
+    CONF_STREAM_NAME,
+    DEFAULT_CONTROL_PORT,
+)
+from .control import WopetControlClient
+from .coordinator import WopetPlanCoordinator, WopetRuntimeData
+
+PLATFORMS = (
+    Platform.CAMERA,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SWITCH,
+    Platform.TEXT,
+    Platform.TIME,
+)
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -16,6 +33,20 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Wopet Local from a config entry."""
+    token = str(entry.options.get(CONF_CONTROL_TOKEN, ""))
+    client = coordinator = None
+    if token:
+        client = WopetControlClient(
+            hass,
+            entry.options.get(CONF_HOST, entry.data[CONF_HOST]),
+            int(entry.options.get(CONF_CONTROL_PORT, DEFAULT_CONTROL_PORT)),
+            token,
+            entry.options.get(CONF_STREAM_NAME, entry.data[CONF_STREAM_NAME]),
+        )
+        coordinator = WopetPlanCoordinator(hass, entry, client)
+        # Do not block setup (or the camera) on the feeder answering.
+        await coordinator.async_refresh()
+    entry.runtime_data = WopetRuntimeData(client=client, coordinator=coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

@@ -1,8 +1,8 @@
-name: Wopet Local Bridge
-version: 0.2.10
-slug: wopet_local_bridge
-description: Local TUTK/Kalay to RTSP bridge for supported Wopet cameras
-url: https://github.com/DrDronez/ha-wopet-local
+name: Wopet Feeder Bridge
+version: "0.5.7"
+slug: wopet_feeder_bridge
+description: Local video, feeding and schedule control for the WOPET Camera Pet Feeder, with no cloud (fork of DrDronez/ha-wopet-local)
+url: https://github.com/mnestor/ha-wopet-feeder
 arch:
   - amd64
 startup: services
@@ -13,7 +13,7 @@ ingress: true
 ingress_port: 1985
 host_network: true
 panel_icon: mdi:cctv
-panel_title: Wopet Local
+panel_title: Wopet Feeder
 options:
   camera_ip: ""
   device_uid: ""
@@ -24,6 +24,9 @@ options:
   control_port: 1986
   control_token: ""
   enable_audio: false
+  preload_stream: true
+  p2p_responder: true
+  p2p_region_address: auto
   log_level: info
 schema:
   camera_ip: str
@@ -35,4 +38,7 @@ schema:
   control_port: port
   control_token: password
   enable_audio: bool
+  preload_stream: bool?
+  p2p_responder: bool
+  p2p_region_address: match(^(auto|captured|[0-9]{1,3}(\.[0-9]{1,3}){3})$)
   log_level: list(debug|info|warning|error)
