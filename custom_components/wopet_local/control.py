@@ -153,6 +153,11 @@ class WopetControlClient:
     async def async_feed(self, portions: int) -> None:
         await self._call("POST", "/feed", {"portions": portions}, FEED_TIMEOUT)
 
+    async def async_get_feed_log(self, days: int) -> list[dict[str, Any]]:
+        payload = await self._call("GET", "/feedlog", None, PLAN_TIMEOUT,
+                                   params={"days": str(days)})
+        return payload["records"]
+
     async def async_get_clips(self) -> list[dict[str, Any]]:
         payload = await self._call("GET", "/clips", None, PLAN_TIMEOUT)
         return payload["clips"]

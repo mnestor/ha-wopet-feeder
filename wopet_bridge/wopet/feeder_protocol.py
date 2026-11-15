@@ -58,6 +58,9 @@ CLIP_PLAY_RESP = 0x2089
 CLIP_UPLOAD_REQ = 0x208A
 CLIP_UPLOAD_RESP = 0x208B
 CLIP_ENTRY_LEN = 104
+FEEDLOG_REQ = 0x20C0
+FEEDLOG_RESP = 0x20C1
+FEEDLOG_RECORD_LEN = 8
 CLIP_EMPTY_LABEL = "invalid"
 
 RECORD_LEN = 56
@@ -75,6 +78,13 @@ MAX_MEAL_PORTIONS = 10
 MAX_FEED_PORTIONS = 4
 
 EVENT_CODES = {0x36: "refused: bowl full (dispense excessive food)"}
+
+# Feed log record codes. 0x32 carries the amount dispensed (20 for a two-portion meal:
+# portions x 10, as in the plan record); 0x36 is the feeder's "dispense excessive food"
+# refusal, its value always 3 so far.
+FEED_DISPENSED = 0x32
+FEED_REFUSED_FULL = 0x36
+FEED_RESULTS = {FEED_DISPENSED: "dispensed", FEED_REFUSED_FULL: "bowl_full"}
 
 
 class ProtocolError(ValueError):
@@ -346,3 +356,44 @@ def build_clip_upload(index: int, label: str, seconds: int, epoch: int) -> bytes
 
 def build_clip_play(index: int, label: str, seconds: int, epoch: int) -> bytes:
     return struct.pack("<I", 2) + build_clip_entry(index, label, seconds, epoch)
+
+
+def build_feed_log(start: int, end: int) -> bytes:
+    """0x20c0: the feeder's own feed records between two Unix times."""
+    if not 0 <= start <= end <= 0xFFFFFFFF:
+        raise ValueError("feed log range must be start <= end")
+    return struct.pack("<IIII", 0, start, end, 0)
+
+
+def parse_feed_log(body: bytes) -> list[dict[str, object]]:
+    """Records of a 0x20c1 reply, oldest first.
+
+    Layout: u32 0, u32 1, u8 0, u8 1, u16 count, then count 8-byte records
+    {u32 time, u8 value, u8 0, u8 code, u8 0}.
+    """
+    if len(body) < 12:
+        raise ProtocolError("feed log reply too short")
+    count = struct.unpack_from("<H", body, 10)[0]
+    end = 12 + FEEDLOG_RECORD_LEN * count
+    if len(body) < end:
+        raise ProtocolError(f"feed log truncated: {count} records, {len(body)} bytes")
+    records = []
+    for pos in range(12, end, FEEDLOG_RECORD_LEN):
+        stamp, value, _pad, code = struct.unpack_from("<IBBB", body, pos)
+        records.append({
+            "time": stamp,
+            "result": FEED_RESULTS.get(code, "unknown"),
+            "code": code,
+            "value": value,
+        })
+    records.sort(key=lambda r: r["time"])
+    return records
+
+
+def feed_log_in_window(body: bytes, start: int, end: int) -> bool:
+    """Whether a 0x20c1 reply can be the answer to a query for [start, end]."""
+    try:
+        records = parse_feed_log(body)
+    except ProtocolError:
+        return False
+    return all(start <= int(r["time"]) <= end for r in records)

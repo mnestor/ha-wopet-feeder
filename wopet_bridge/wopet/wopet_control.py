@@ -8,6 +8,8 @@ Endpoints (all need "Authorization: Bearer <control_token>"):
   POST /feed              {"portions": n}  dispense now (sent once, never retried)
   POST /time              {}  set the feeder clock to this host's time and timezone
   GET  /clips             the five voice-clip slots (clip 0-4 = sound0..4.wav)
+  GET  /feedlog?days=N    the feeder's own feed records for the last N days (default 3,
+                          at most 30), oldest first: {"time", "result", "code", "value"}
   POST /clip?clip=N&label=NAME   body: WAV, PCM 16-bit mono 8 kHz, at most 10 s; stores it in
                           clip slot N (the feeder confirms), returns the new clip list
   POST /clip/play         {"clip": n}  play a stored clip now
@@ -44,6 +46,10 @@ AUTO_TIME_DELAY = 3.0
 TALK_MAX_SECONDS = 600
 CLIP_TIMEOUT = 6.0
 CLIP_MAX_BYTES = 256 * 1024
+FEEDLOG_TIMEOUT = 12.0
+FEEDLOG_RESEND = 4.0     # a reply can take ~2 s; resending sooner only queues more work
+FEEDLOG_CHUNK_DAYS = 10  # the app's 11-day query came back as one 540-byte reply
+FEEDLOG_MAX_DAYS = 30
 
 
 def _alaw_table() -> list[bytes]:
@@ -89,14 +95,15 @@ def _on_control_frame(ts: float, io_type: int, head: bytes) -> None:
         _events_cv.notify_all()
 
 
-def _ioctl(session, io_type, payload, resp_type, timeout, retransmit=True, match=None) -> bytes:
+def _ioctl(session, io_type, payload, resp_type, timeout, retransmit=True, match=None,
+           interval=1.5) -> bytes:
     actual, body = session.ioctl_during_stream(
         io_type,
         payload,
         resp_type=resp_type,
         timeout=timeout,
         retransmit=retransmit,
-        interval=1.5,
+        interval=interval,
         match=match,
     )
     if actual != resp_type or body is None:
@@ -203,6 +210,38 @@ def read_clips(session) -> list[dict[str, object]]:
 def get_clips(session) -> dict[str, object]:
     with _lock:
         return {"ok": True, "clips": read_clips(session)}
+
+
+def read_feed_log(session, days: int, now: float | None = None) -> list[dict[str, object]]:
+    end = int(now if now is not None else time.time())
+    start = end - days * 86400
+    records: dict[tuple[int, int], dict[str, object]] = {}
+    chunk = FEEDLOG_CHUNK_DAYS * 86400
+    for lo in range(start, end, chunk):
+        hi = min(lo + chunk, end)
+        payload = fp.build_feed_log(lo, hi)
+        # Replies don't echo the window: a late reply to an earlier request (after a
+        # retransmit) would otherwise be read as this chunk's answer, and every later
+        # chunk would shift by one.
+        body = _ioctl(session, fp.FEEDLOG_REQ, payload, fp.FEEDLOG_RESP, FEEDLOG_TIMEOUT,
+                      match=lambda b, lo=lo, hi=hi: fp.feed_log_in_window(b, lo, hi),
+                      interval=FEEDLOG_RESEND)
+        for record in fp.parse_feed_log(body):
+            records[(int(record["time"]), int(record["code"]))] = record
+    return sorted(records.values(), key=lambda r: r["time"])
+
+
+def get_feed_log(session, days=None) -> dict[str, object]:
+    if days in (None, ""):
+        days = 3
+    if isinstance(days, str):
+        if not days.isdigit():
+            raise ValueError("days must be a whole number")
+        days = int(days)
+    if not 1 <= days <= FEEDLOG_MAX_DAYS:
+        raise ValueError(f"days must be 1-{FEEDLOG_MAX_DAYS}")
+    with _lock:
+        return {"ok": True, "days": days, "records": read_feed_log(session, days)}
 
 
 def _clip_index(value) -> int:
@@ -426,6 +465,10 @@ def start_control_server(session):
         def do_GET(self):
             if not self._authorized():
                 self._write_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            url = urlsplit(self.path)
+            if url.path == "/feedlog":
+                self._run(get_feed_log, parse_qs(url.query).get("days", [None])[0])
                 return
             if self.path == "/health":
                 if not _stream_is_ready(session):

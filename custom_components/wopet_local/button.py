@@ -36,4 +36,9 @@ class WopetFeedButton(ButtonEntity):
 
     async def async_press(self) -> None:
         runtime = self._entry.runtime_data
-        await runtime.client.async_feed(int(runtime.feed_portions))
+        try:
+            await runtime.client.async_feed(int(runtime.feed_portions))
+        finally:
+            # The feeder logs the feed (or its bowl-full refusal) at once.
+            if runtime.feed_log is not None:
+                await runtime.feed_log.async_request_refresh()

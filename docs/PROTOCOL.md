@@ -44,7 +44,10 @@ Replies use the request type + 1.
 | `0x2086` → `0x2087` | List voice clips | Decoded |
 | `0x2088` → `0x2089` | Play a clip now (type 2) | Implemented |
 | `0x208a` → `0x208b` | Start a clip upload | Implemented |
-| `0x20d3` → `0x20d4` | Feeding records (epoch window) | Times out from our client |
+| `0x20c0` → `0x20c1` | Feed log (epoch window) | Decoded from an app capture |
+| `0x20d3` → `0x20d4` | Feed alarms (epoch window, type 2) | Decoded from an app capture |
+| `0x20c2` → `0x20c3` | Delete feed log entries | Decoded from an app capture |
+| `0x2084` → `0x2085`, `0x20c4` → `0x20c5` | Device location and cloud server settings (the app reads them on connect) | Seen, not used |
 
 ### Feeding plan, `0x208c` / `0x208d`
 
@@ -93,6 +96,39 @@ has run (about 7 s). A `0x2072` event follows about 3 s later; a `u32` status at
 +16 of its payload of `0x36` means the feed was refused because the bowl is full
 (the app calls it "Dispense excessive food"). Never retransmit a feed: the
 bridge sends it once and reports a missing reply as "may or may not have fed".
+
+### Feed log, `0x20c0` / `0x20c1`, `0x20d3` / `0x20d4`, `0x20c2` / `0x20c3`
+
+From a WOpet app capture of its history screen (2026-11-15). Times are Unix
+epoch seconds (UTC); all integers are little-endian.
+
+- `0x20c0` (16 B): `u32 0`, `u32 start`, `u32 end`, `u32 0`. The app asked for
+  the last 11 days.
+- `0x20c1`: `u32 0`, `u32 1`, `u8 0`, `u8 1`, `u16 count`, then `count` x 8-byte
+  records: `u32 time`, `u8 value`, `u8 0`, `u8 code`, `u8 0`.
+
+  | code | value | Meaning |
+  | --- | --- | --- |
+  | `0x32` | 20 | Dispensed |
+  | `0x36` | 3 | Refused: bowl full ("Dispense excessive food") |
+
+  Scheduled and manual feeds both appear. One 540-byte reply held 66
+  records. The feeder answered a 30-day read (three 10-day windows, 181
+  records) in about 2.5 s, so it keeps at least 30 days; whether it pages a
+  window with more records than one reply holds is unknown. The reply does not
+  echo the window, so a late reply to a resent request looks like the answer
+  to the next one: the bridge accepts a reply only if all its records fall in
+  the window it asked for, and resends after 4 s, not 1.5 s (a reply once took
+  about 2 s, and early resends made it queue up and time out). The value
+  byte's meaning beyond the two pairings above is unknown.
+- `0x20d3` (20 B): `u32 0`, `u32 start`, `u32 end`, `u32 0`, `u32 2`, asked for
+  one year. `0x20d4` has the same layout as `0x20c1` and held only the latest
+  two refusals, so type 2 looks like the alarm list.
+- `0x20c2`: `u32 1`, `u32 1`, `u32 count`, then `count` x (`u32 time`, `u8 0`,
+  `u8 0`, `u8 code`, `u8 0`), zero-padded to 172 bytes. `0x20c3`: `u32 1`,
+  `u32 1`, `u32 0`, `u32 count` (accepted). The app sent it for two 2022 records
+  that only its cloud history had, so app history older than the feeder's log
+  comes from the vendor cloud.
 
 ### Clock, `0x2052` / `0x2053`
 

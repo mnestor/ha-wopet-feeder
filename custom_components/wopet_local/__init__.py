@@ -13,15 +13,18 @@ from .const import (
     DEFAULT_CONTROL_PORT,
 )
 from .control import WopetControlClient
-from .coordinator import WopetPlanCoordinator, WopetRuntimeData
+from .coordinator import WopetFeedLogCoordinator, WopetPlanCoordinator, WopetRuntimeData
 from .recorder import async_setup_recorder
 from .services import async_setup_services
 
 PLATFORMS = (
+    Platform.BINARY_SENSOR,
     Platform.CAMERA,
     Platform.BUTTON,
+    Platform.EVENT,
     Platform.NUMBER,
     Platform.SELECT,
+    Platform.SENSOR,
     Platform.SWITCH,
     Platform.TEXT,
     Platform.TIME,
@@ -36,7 +39,7 @@ async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Wopet Local from a config entry."""
     token = str(entry.options.get(CONF_CONTROL_TOKEN, ""))
-    client = coordinator = None
+    client = coordinator = feed_log = None
     if token:
         client = WopetControlClient(
             hass,
@@ -48,7 +51,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = WopetPlanCoordinator(hass, entry, client)
         # Do not block setup (or the camera) on the feeder answering.
         await coordinator.async_refresh()
-    entry.runtime_data = WopetRuntimeData(client=client, coordinator=coordinator)
+        feed_log = WopetFeedLogCoordinator(hass, entry, client)
+        await feed_log.async_refresh()
+    entry.runtime_data = WopetRuntimeData(
+        client=client, coordinator=coordinator, feed_log=feed_log
+    )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await async_setup_services(hass)
     await async_setup_recorder(hass)

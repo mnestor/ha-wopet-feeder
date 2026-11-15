@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -12,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from . import feedlog
 from .const import DOMAIN
 from .control import WopetControlClient
 
@@ -21,6 +23,11 @@ _LOGGER = logging.getLogger(__name__)
 # read briefly starts the camera session, so poll rarely.
 SCAN_INTERVAL = timedelta(hours=6)
 RETRY_INTERVAL = timedelta(minutes=5)
+# The feed log is one small IOCTL on the already-running session.
+FEEDLOG_INTERVAL = timedelta(minutes=10)
+FEEDLOG_POLL_DAYS = 1
+# Re-read the whole window now and then, so a gap (a failed poll, an old bridge) heals.
+FEEDLOG_FULL_EVERY = timedelta(hours=6)
 
 
 class WopetPlanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
@@ -66,9 +73,43 @@ class WopetPlanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self.async_set_updated_data(self._index(meals))
 
 
+class WopetFeedLogCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
+    """The feeder's feed records for the last 30 days, oldest first.
+
+    The first read fetches the whole window so "last fed" is known even after days of
+    refusals; later polls fetch the last day and merge it in, with a full re-read every
+    six hours that replaces the merged list.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: WopetControlClient) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN} feed log",
+            update_interval=FEEDLOG_INTERVAL,
+        )
+        self.client = client
+        self._full_read_at = 0.0
+
+    async def _async_update_data(self) -> list[dict[str, Any]]:
+        now = time.time()
+        full = not self.data or now - self._full_read_at >= FEEDLOG_FULL_EVERY.total_seconds()
+        days = feedlog.KEEP_DAYS if full else FEEDLOG_POLL_DAYS
+        try:
+            fresh = await self.client.async_get_feed_log(days)
+        except HomeAssistantError as exc:
+            raise UpdateFailed(str(exc)) from exc
+        if full:
+            self._full_read_at = now
+            return feedlog.merge([], fresh, now)
+        return feedlog.merge(self.data or [], fresh, now)
+
+
 @dataclass
 class WopetRuntimeData:
     client: WopetControlClient | None
     coordinator: WopetPlanCoordinator | None
+    feed_log: WopetFeedLogCoordinator | None = None
     feed_portions: int = 1
     extra: dict[str, Any] = field(default_factory=dict)

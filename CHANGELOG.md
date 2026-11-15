@@ -26,7 +26,23 @@ starts from DrDronez/ha-wopet-local 0.2.10.
   change shows *Saving…* until Home Assistant reports the feeder's new value,
   and is rolled back with **Retry** if the feeder doesn't confirm. Switching a
   meal off offers **Undo**.
-- Needs bridge 0.5.8.
+- **Feeding history** from the feeder's own log: `sensor.<name>_last_fed`
+  (when it last dispensed, with the last 10 records as `recent`),
+  `binary_sensor.<name>_bowl_full` (the latest feed was skipped because the bowl
+  was full; `skipped_feeds` and `since`), and `event.<name>_feed` (`dispensed` /
+  `bowl_full`, one per new record). Read at startup (30 days), every 10 minutes
+  (last day, with a full 30-day re-read every 6 hours), and right after the
+  Feed button.
+- Needs bridge 0.5.9.
+
+## Bridge 0.5.9
+
+- Feed log: `GET /feedlog?days=N` (1-30, default 3) returns the feeder's own
+  record of every scheduled and manual feed, oldest first, with its result:
+  `dispensed` or `bowl_full` (the feeder refused because the bowl was still
+  full). Read with IOCTL `0x20c0`, decoded from the WOpet app's history screen,
+  in 10-day windows; each reply is checked against its window, so a late reply
+  to a resent request can't be read as the next window's answer.
 
 ## Bridge 0.5.8
 

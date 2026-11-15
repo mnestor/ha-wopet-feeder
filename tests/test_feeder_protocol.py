@@ -167,3 +167,39 @@ def test_feed_event_codes() -> None:
     assert fp.parse_event(b"\0" * 10) is None
     assert "bowl full" in fp.EVENT_CODES[0x36]
     assert fp.parse_feed_reply(struct.pack("<I", 0)) == 0
+
+
+# The WOpet app's feed-log query and the first records of the reply (2026-11-15 capture).
+APP_FEEDLOG_REQ = bytes.fromhex("0000000052b7eb6ad237fa6a00000000")
+APP_FEEDLOG_HEAD = bytes.fromhex("000000000100000000014200")   # 0x42 = 66 records
+APP_FEEDLOG_RECORDS = bytes.fromhex("ab53ec6a140032002a57ec6a1400320008a8ec6a14003200")
+
+
+def feed_log_reply(records: list[tuple[int, int, int]]) -> bytes:
+    out = struct.pack("<IIBBH", 0, 1, 0, 1, len(records))
+    for stamp, value, code in records:
+        out += struct.pack("<IBBBB", stamp, value, 0, code, 0)
+    return out
+
+
+def test_feed_log_matches_the_app_capture() -> None:
+    fp = _load("feeder_protocol")
+    assert fp.build_feed_log(0x6AEBB752, 0x6AFA37D2) == APP_FEEDLOG_REQ
+    body = APP_FEEDLOG_HEAD[:10] + struct.pack("<H", 3) + APP_FEEDLOG_RECORDS
+    records = fp.parse_feed_log(body)
+    assert [r["time"] for r in records] == [0x6AEC53AB, 0x6AEC572A, 0x6AECA808]
+    assert records[0] == {"time": 0x6AEC53AB, "result": "dispensed", "code": 0x32, "value": 20}
+
+    full = fp.parse_feed_log(feed_log_reply([(200, 3, 0x36), (100, 20, 0x32), (300, 1, 0x99)]))
+    assert [(r["time"], r["result"]) for r in full] == [
+        (100, "dispensed"), (200, "bowl_full"), (300, "unknown")]
+
+
+def test_feed_log_rejects_bad_input() -> None:
+    fp = _load("feeder_protocol")
+    with pytest.raises(fp.ProtocolError):
+        fp.parse_feed_log(b"\0" * 8)
+    with pytest.raises(fp.ProtocolError):
+        fp.parse_feed_log(APP_FEEDLOG_HEAD + APP_FEEDLOG_RECORDS)   # says 66, has 3
+    with pytest.raises(ValueError):
+        fp.build_feed_log(10, 5)

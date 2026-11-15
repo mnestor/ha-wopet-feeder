@@ -184,8 +184,11 @@ speaker fade within about a second; that is not lost audio.
   covers every later re-initialisation.
 - Meaning of meal record +4..5, +6 (probably a weekday mask) and +11 bit 4.
 - Meaning of the referral's type 1 and type 3 entries (replayed as captured).
-- Feeding records (`0x20d3`): our query timed out and the next session failed
-  its handshake.
+- Feed log: bridge 0.5.9 reads `0x20c0` (see Protocol). Still open: whether the
+  feeder pages a window with more records than one reply holds, and why an
+  earlier `0x20d3` query of ours timed out and broke the next session's
+  handshake (the app's `0x20d3` request is in the capture, but the bridge
+  doesn't send it).
 - Manual feed from Home Assistant has not been pressed on the real feeder yet.
 - Why camera audio once stopped after about 95 seconds (seen once, not since).
 - Other models or firmware versions.

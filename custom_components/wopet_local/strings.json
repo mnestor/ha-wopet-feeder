@@ -74,5 +74,28 @@
         }
       }
     }
+  },
+  "entity": {
+    "event": {
+      "feed": {
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "dispensed": "Dispensed",
+              "bowl_full": "Skipped: bowl full",
+              "unknown": "Unknown"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "bowl_full": {
+        "state": {
+          "on": "Full",
+          "off": "Not full"
+        }
+      }
+    }
   }
 }

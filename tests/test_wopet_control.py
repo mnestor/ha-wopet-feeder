@@ -134,3 +134,33 @@ def test_control_health_uses_wrapped_transport_reader() -> None:
 
     assert ctl._stream_is_ready(Session()) is True
     assert ctl._stream_is_ready(object()) is False
+
+
+def test_feed_log_is_read_in_chunks_and_merged() -> None:
+    from test_feeder_protocol import feed_log_reply
+
+    ctl = _load_control()
+    now = 1_000_000
+    day = 86400
+    session = FakeSession([
+        feed_log_reply([(now - 9 * day, 20, 0x32)]),
+        feed_log_reply([(now - 9 * day, 20, 0x32)]),   # a late duplicate: skipped
+        feed_log_reply([(now - 5 * day, 3, 0x36), (now - 3 * day, 3, 0x36)]),
+        feed_log_reply([(now - 60, 20, 0x32)]),
+    ])
+    ctl.FEEDLOG_CHUNK_DAYS = 4
+    records = ctl.read_feed_log(session, 10, now=now)
+    assert [c["io"] for c in session.calls] == [0x20C0] * 3
+    ranges = [struct.unpack("<IIII", c["payload"])[1:3] for c in session.calls]
+    assert ranges[0][0] == now - 10 * day and ranges[-1][1] == now
+    assert all(a[1] == b[0] for a, b in zip(ranges, ranges[1:], strict=False))
+    assert [(r["time"], r["result"]) for r in records] == [
+        (now - 9 * day, "dispensed"), (now - 5 * day, "bowl_full"), (now - 3 * day, "bowl_full"),
+        (now - 60, "dispensed")]
+
+
+@pytest.mark.parametrize("days", ["0", "31", "x", -1])
+def test_feed_log_rejects_bad_days(days) -> None:
+    ctl = _load_control()
+    with pytest.raises(ValueError):
+        ctl.get_feed_log(FakeSession([]), days)

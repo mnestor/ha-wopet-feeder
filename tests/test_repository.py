@@ -39,7 +39,7 @@ def test_home_assistant_app_metadata_is_valid_yaml() -> None:
     )
     assert repository["name"] == "Wopet Feeder (local)"
     assert app["slug"] == "wopet_feeder_bridge"
-    assert app["version"] == "0.5.8"
+    assert app["version"] == "0.5.9"
     assert app["arch"] == ["amd64"]
     assert app["host_network"] is True
     assert app["ingress_port"] == 1985
@@ -188,3 +188,37 @@ def test_every_served_card_exists_and_defines_its_element() -> None:
     for name in names:
         source = (frontend / name).read_text(encoding="utf-8")
         assert f'customElements.define("{name[:-3]}"' in source
+
+
+def _load_feedlog():
+    import importlib.util
+
+    path = Path(__file__).parents[1] / "custom_components/wopet_local/feedlog.py"
+    spec = importlib.util.spec_from_file_location("wopet_feedlog_t", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _rec(stamp: int, result: str, value: int = 20) -> dict:
+    code = {"dispensed": 0x32, "bowl_full": 0x36}[result]
+    return {"time": stamp, "result": result, "code": code, "value": value}
+
+
+def test_feed_log_merge_and_summaries() -> None:
+    fl = _load_feedlog()
+    day = 86400
+    now = 100 * day
+    old = [_rec(now - 40 * day, "dispensed"), _rec(now - 5 * day, "dispensed", 15)]
+    new = [_rec(now - 5 * day, "dispensed", 15), _rec(now - day, "bowl_full", 3),
+           _rec(now - 60, "bowl_full", 3)]
+    records = fl.merge(old, new, now)
+    assert [r["time"] for r in records] == [now - 5 * day, now - day, now - 60]   # 40 d dropped
+    assert fl.last(records)["time"] == now - 60
+    assert fl.last(records, fl.DISPENSED)["time"] == now - 5 * day
+    assert fl.portions(records[0]) == 1.5 and fl.portions(records[1]) is None
+    assert [r["time"] for r in fl.refused_streak(records)] == [now - day, now - 60]
+    assert fl.refused_streak(records[:1]) == []
+    assert fl.newer_than(records, now - day) == records[2:]
+    assert fl.last([]) is None

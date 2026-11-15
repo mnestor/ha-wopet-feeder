@@ -10,7 +10,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import WopetPlanCoordinator
+from .coordinator import WopetFeedLogCoordinator, WopetPlanCoordinator
 
 SLOTS = range(1, 7)  # the feeder has exactly six fixed meal slots
 
@@ -65,3 +65,23 @@ class WopetMealEntity(CoordinatorEntity[WopetPlanCoordinator]):
         except HomeAssistantError:
             await self.coordinator.async_request_refresh()
             raise
+
+
+class WopetFeedLogEntity(CoordinatorEntity[WopetFeedLogCoordinator]):
+    """An entity fed by the feeder's own feed log."""
+
+    _attr_has_entity_name = True
+    key: str = ""
+
+    def __init__(self, entry: ConfigEntry, coordinator: WopetFeedLogCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_{self.key}"
+        self._attr_device_info = device_info(entry)
+
+    @property
+    def records(self) -> list[dict[str, Any]]:
+        return self.coordinator.data or []
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.data is not None

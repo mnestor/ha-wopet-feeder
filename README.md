@@ -29,7 +29,7 @@ If you have a D100, use upstream.
 | Edit the schedule on a dashboard | Works | Feeding schedule card (`custom:wopet-schedule-card`), loaded by the integration |
 | Choose a clip per meal | Works | `Meal N clip` select: Silent or one of the five clips, with their labels |
 | Record a voice clip | Works | Recorder card on the dashboard, or `wopet_local.upload_clip` for an audio file; `wopet_local.play_clip` plays one now; bridge 0.5.8 + integration 0.4.0 |
-| Feeding history (`0x20d3`) | Does not work | Query timed out and broke the next session |
+| Feeding history | Works | The feeder's own log of every feed (dispensed, or skipped because the bowl was full), 30 days back; `Last fed`, `Bowl full` and a `Feed` event; bridge 0.5.9 + integration 0.4.0 |
 | Camera audio | Works (experimental, off by default) | 8 kHz microphone as G.711 A-law next to the video; needs bridge 0.5.7 |
 | Talk through the feeder speaker | Works (experimental) | `POST /talk` on the control port; Home app talk button through Homebridge; needs bridge 0.5.8 |
 | HomeKit with Secure Video | Works | Through Homebridge, with a software motion trigger; see [HomeKit](docs/HOMEKIT.md) |
@@ -162,6 +162,9 @@ upstream repository.
 | `select.<name>_meal_N_grid` | Food grid size: small or big |
 | `select.<name>_meal_N_clip` | Voice clip the meal plays: Silent (no sound) or Clip 1-5, with the feeder's labels |
 | `text.<name>_meal_N_name` | Meal name |
+| `sensor.<name>_last_fed` | When the feeder last dispensed food (scheduled or manual), from its own log; attributes: `portions`, `last_attempt`, `last_attempt_result`, and `recent` (the last 10 records) |
+| `binary_sensor.<name>_bowl_full` | On while the latest feed was skipped because the bowl was still full; `skipped_feeds` and `since` count the run |
+| `event.<name>_feed` | Fires `dispensed` or `bowl_full` for each new feed record, with `feed_time` and `portions` (polled every 10 minutes, and right after the Feed button) |
 
 ### Feeding schedule card
 
@@ -179,6 +182,15 @@ for a few seconds.
 type: custom:wopet-schedule-card
 title: Feeding schedule
 ```
+
+### Feeding history
+
+The feeder keeps its own record of every scheduled and manual feed, and whether
+it dispensed or skipped it because the bowl was still full (what the WOpet app
+calls "dispense excessive food"). The integration reads the last 30 days at
+startup and the last day every 10 minutes. A run of skipped feeds usually means
+the cat isn't eating, or kibble is stuck in the chute; for example, notify when
+`binary_sensor.<name>_bowl_full` has `skipped_feeds` of 3 or more.
 
 ### Voice clips
 
