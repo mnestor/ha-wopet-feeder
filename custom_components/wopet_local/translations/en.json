@@ -36,5 +36,43 @@
     "error": {
       "cannot_connect": "Cannot connect to the bridge RTSP port. Confirm the app is running and use the HAOS host address rather than 127.0.0.1."
     }
+  },
+  "services": {
+    "upload_clip": {
+      "name": "Upload voice clip",
+      "description": "Convert an audio file (any format ffmpeg reads, first 10 seconds) and store it in one of the feeder's five clip slots.",
+      "fields": {
+        "clip": {
+          "name": "Clip slot",
+          "description": "1 to 5 (the feeder's sound0 to sound4)."
+        },
+        "file": {
+          "name": "File",
+          "description": "Path under an allowed folder, such as /media/dinner_bell.m4a, or a media-source://media_source/local/... address."
+        },
+        "label": {
+          "name": "Label",
+          "description": "Name shown for the clip (up to 31 bytes). Defaults to the file name."
+        },
+        "config_entry_id": {
+          "name": "Feeder",
+          "description": "Only needed with more than one feeder."
+        }
+      }
+    },
+    "play_clip": {
+      "name": "Play voice clip",
+      "description": "Play one of the feeder's stored clips now.",
+      "fields": {
+        "clip": {
+          "name": "Clip slot",
+          "description": "1 to 5."
+        },
+        "config_entry_id": {
+          "name": "Feeder",
+          "description": "Only needed with more than one feeder."
+        }
+      }
+    }
   }
 }

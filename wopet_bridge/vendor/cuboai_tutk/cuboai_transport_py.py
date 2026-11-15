@@ -194,6 +194,17 @@ class PureSession:
             match=match,
         )
 
+    def add_channel_handler(self, handler) -> None:
+        """Attach a Wopet channel handler (talk, clip upload) that the reader thread runs.
+
+        A handler has `channel`, `active`, `pump(sess, sock)` and `rx(sess, sock, frame)`.
+        """
+        inner = self._inner
+        inner._wopet_handlers = (*inner._wopet_handlers, handler)
+
+    def set_talk(self, talk) -> None:
+        self.add_channel_handler(talk)
+
     def set_control_listener(self, callback) -> None:
         """Receive (ts, io_type, first 96 decoded bytes) for inbound IO frames."""
         self._inner._ctrl_log = callback

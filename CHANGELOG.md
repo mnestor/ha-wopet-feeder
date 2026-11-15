@@ -4,6 +4,41 @@ Versions of the bridge app (`wopet_bridge/config.yaml`) and the integration
 (`custom_components/wopet_local/manifest.json`) move independently. This fork
 starts from DrDronez/ha-wopet-local 0.2.10.
 
+## Integration 0.4.0
+
+- Each meal gets a **clip** select: Silent, or one of the feeder's five voice
+  clips, shown with their labels.
+- **Removed** the `switch.<name>_meal_N_audio` entities. The feeder keeps a
+  meal's sound in one byte (off, or clip 0-4), so the clip select already
+  covers it: Silent turns the sound off, a clip turns it on. Delete the six
+  leftover entities under Settings > Entities after updating; automations that
+  used them should call `select.select_option` on the clip select instead.
+- `wopet_local.upload_clip`: converts any audio file ffmpeg can read (first 10
+  seconds, peak-normalised, 8 kHz mono) and stores it in clip slot 1-5.
+- `wopet_local.play_clip`: plays a stored clip now.
+- **Wopet clip recorder** card (`custom:wopet-clip-card`), loaded on every
+  dashboard by the integration: record up to 10 s in the browser or Companion
+  app, listen back, save to a clip slot, play it on the feeder. It posts to the
+  authenticated `/api/wopet_local/clip` endpoint, which converts with ffmpeg.
+- **Wopet feeding schedule** card (`custom:wopet-schedule-card`), also loaded
+  by the integration: the six meals sorted by time with on/off switches; open
+  one to edit time, label, portions, kibble size and voice clip in place. A
+  change shows *Saving…* until Home Assistant reports the feeder's new value,
+  and is rolled back with **Retry** if the feeder doesn't confirm. Switching a
+  meal off offers **Undo**.
+- Needs bridge 0.5.8.
+
+## Bridge 0.5.8
+
+- Two-way talk (experimental): `POST /talk` on the control port streams audio
+  to the feeder's speaker (G.711 A-law as `audio/PCMA`, or 16-bit 8 kHz mono
+  PCM as `audio/L16`), using the same speaker protocol as the WOpet app. go2rtc
+  gets a backchannel source, so a viewer that sends its microphone (WebRTC)
+  talks through the feeder.
+- Voice clips: `GET /clips` lists the five clip slots, `POST /clip?clip=N&label=`
+  stores a WAV (PCM 16-bit, mono, 8 kHz, at most 10 s) in a slot over TUTK RDT,
+  the way the WOpet app does, and `POST /clip/play` plays a clip now.
+
 ## Bridge 0.5.7
 
 - Camera audio (`enable_audio`) works on the feeder: its 8 kHz microphone

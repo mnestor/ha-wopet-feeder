@@ -1,4 +1,8 @@
-"""Meal on/off and meal audio switches."""
+"""Meal on/off switches.
+
+A meal's sound is set with its voice-clip select (Silent or a clip); the feeder keeps one
+byte for both, so a separate audio switch would only duplicate it.
+"""
 
 from __future__ import annotations
 
@@ -18,11 +22,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     if coordinator is None:
         return
-    entities: list[SwitchEntity] = []
-    for slot in SLOTS:
-        entities.append(MealEnabledSwitch(entry, coordinator, slot))
-        entities.append(MealAudioSwitch(entry, coordinator, slot))
-    async_add_entities(entities)
+    async_add_entities(MealEnabledSwitch(entry, coordinator, slot) for slot in SLOTS)
 
 
 class MealEnabledSwitch(WopetMealEntity, SwitchEntity):
@@ -40,28 +40,3 @@ class MealEnabledSwitch(WopetMealEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._set(enabled=False)
 
-
-class MealAudioSwitch(WopetMealEntity, SwitchEntity):
-    field_key = "audio"
-    label = "audio"
-    _attr_icon = "mdi:volume-high"
-
-    @property
-    def is_on(self) -> bool | None:
-        return None if self.meal is None else bool(self.meal["audio"])
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        attrs = super().extra_state_attributes
-        if attrs is None:
-            return None
-        sound = self.meal.get("sound")
-        # The feeder stores a clip index per meal (sound0..sound4.wav); "on" from HA
-        # keeps the current clip, or picks sound0 if the meal was silent.
-        return {**attrs, "sound_file": None if sound is None else f"sound{sound}.wav"}
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._set(audio=True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._set(audio=False)

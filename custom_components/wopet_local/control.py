@@ -14,6 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 PLAN_TIMEOUT = 20
 FEED_TIMEOUT = 35
+CLIP_TIMEOUT = 60
 
 
 class WopetControlClient:
@@ -86,7 +87,14 @@ class WopetControlClient:
             await asyncio.sleep(1)
 
     async def _call(
-        self, method: str, path: str, body: dict[str, Any] | None, timeout: int
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None,
+        timeout: int,
+        *,
+        data: bytes | None = None,
+        params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             holder = asyncio.create_task(self._hold_stream())
@@ -103,8 +111,14 @@ class WopetControlClient:
                     async with self._session.request(
                         method,
                         f"{self._base}{path}",
-                        json=body,
-                        headers=self._headers,
+                        json=body if data is None else None,
+                        data=data,
+                        params=params,
+                        headers=(
+                            self._headers
+                            if data is None
+                            else {**self._headers, "Content-Type": "audio/wav"}
+                        ),
                         timeout=ClientTimeout(total=timeout),
                     ) as response:
                         payload = await response.json(content_type=None)
@@ -138,3 +152,17 @@ class WopetControlClient:
 
     async def async_feed(self, portions: int) -> None:
         await self._call("POST", "/feed", {"portions": portions}, FEED_TIMEOUT)
+
+    async def async_get_clips(self) -> list[dict[str, Any]]:
+        payload = await self._call("GET", "/clips", None, PLAN_TIMEOUT)
+        return payload["clips"]
+
+    async def async_play_clip(self, clip: int) -> None:
+        await self._call("POST", "/clip/play", {"clip": clip}, PLAN_TIMEOUT)
+
+    async def async_upload_clip(self, clip: int, label: str, wav: bytes) -> list[dict[str, Any]]:
+        payload = await self._call(
+            "POST", "/clip", None, CLIP_TIMEOUT,
+            data=wav, params={"clip": str(clip), "label": label},
+        )
+        return payload["clips"]

@@ -17,7 +17,8 @@
         "maxFPS": 15,
         "audio": false,
         "recording": true,
-        "prebuffer": false
+        "prebuffer": false,
+        "returnAudioTarget": "-codec:a pcm_alaw -ar 8000 -ac 1 -f alaw -content_type audio/PCMA -method POST http://192.0.2.100:1986/talk?token=REPLACE_WITH_CONTROL_TOKEN"
       }
     }
   ]

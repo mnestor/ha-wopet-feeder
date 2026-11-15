@@ -42,8 +42,8 @@ Replies use the request type + 1.
 | `0x2052` → `0x2053` | Set clock and timezone | Implemented |
 | `0x03a0` → `0x03a1` | Read timezone (`"GTM -5:00"` (sic), -300 min) | Read once, not used |
 | `0x2086` → `0x2087` | List voice clips | Decoded |
-| `0x2088` | Select/preview a clip (type 2) | Seen, not implemented |
-| `0x208a` → `0x208b` | Start a clip upload | Decoded, not implemented |
+| `0x2088` → `0x2089` | Play a clip now (type 2) | Implemented |
+| `0x208a` → `0x208b` | Start a clip upload | Implemented |
 | `0x20d3` → `0x20d4` | Feeding records (epoch window) | Times out from our client |
 
 ### Feeding plan, `0x208c` / `0x208d`
@@ -108,14 +108,33 @@ after a DST change, every meal ran one hour early.
 
 ### Voice clips, `0x2086` / `0x2087`, `0x208a`
 
-- `0x2086`: 8 zero bytes. `0x2087` (528 B) lists five slots `sound0.wav` to
-  `sound4.wav` as 104-byte entries: `u32 duration_s`, `u32 unix_time`,
-  32 B file name, 32 B label, rest unknown.
-- Upload: `0x208a` (file name, label, duration, time) → `0x208b`, then the WAV
-  over **TUTK RDT channel 3**: frames with magic `5a 97 c2 f1`, type `02`,
-  `u16` length at +6, `u32` sequence at +8, data from +20. Sequence 0 carries the
-  file size as ASCII. Format: WAV, 8 kHz, mono, 16-bit, 10 s maximum in the app
-  (iOS adds an `FLLR` padding chunk).
+- `0x2086`: 8 zero bytes. `0x2087` (528 B): `u32 0`, `u32 count` (5), then
+  five 104-byte entries: file name[32] (`sound0.wav` to `sound4.wav`),
+  label[32] (`invalid` = empty slot), 32 unused bytes, `u32 seconds`,
+  `u32 unix_time`.
+- Play now: `0x2088` = `u32 2` + the entry → `0x2089` (`u32 0` = played).
+- Upload: `0x208a` = `u32 0` + the new entry, zero-padded to 272 bytes →
+  `0x208b` (`u32 0` = accepted). Then the WAV goes over **TUTK RDT on IOTC
+  channel 3**. Each frame has a 20-byte RDT header at decoded [28:48]:
+
+  | Offset | Field |
+  | --- | --- |
+  | +0 | magic `5a 97 c2 f1` |
+  | +4 | type: `01` ping, `41` pong, `02` data, `46` ack, `03` FIN, `43` FIN-ACK, `04` close |
+  | +5 | `05` |
+  | +6 | `u16` data length |
+  | +8 | `u32` sequence (each direction counts its own data from 0; FIN uses `ffffffff`) |
+  | +12 | `u32` 0 (`ffffffff` in FIN) |
+  | +16 | `00` for ping/pong/close, `01` for data/ack/FIN |
+  | +17 | connection id: the feeder's, from its ping (1 after boot); frames with another id are ignored |
+
+  Exchange: host ping → feeder pong, feeder ping → host pong; feeder data
+  `01 soundN.wav`; host data `02 <size in ASCII>`; feeder data `04 Start`; host
+  data seq 1..N, the file in 1280-byte pieces, each acked; feeder data
+  `07 stop` once stored; feeder FIN → host close + FIN-ACK → close both ways.
+  Data messages are 128 bytes: a type byte, then NUL-padded ASCII.
+- Format: WAV, 8 kHz, mono, 16-bit, 10 s maximum in the app (iOS adds an
+  `FLLR` padding chunk; the feeder accepts plain files too).
 - Saving a clip in the app also set the meal record's +13 to that clip.
 
 ## 3. P2P server messages (UDP 10240 and 10001)

@@ -44,6 +44,9 @@ streams:
     # killsignal must be numeric: go2rtc parses it with Atoi, so "SIGTERM" became
     # signal 0 and stopped producers were never killed (orphaned sessions).
     - "exec:python3 /app/wopet/wopet_stream.py#killsignal=15#killtimeout=8"
+    # Two-way audio: a viewer's microphone (WebRTC, RTSP backchannel) goes to the
+    # feeder speaker through the control API.
+    - "exec:python3 /app/wopet/wopet_talk_pipe.py#backchannel=1#audio=pcma/8000"
 EOF
 
 if [[ "${preload_stream}" == "true" ]]; then

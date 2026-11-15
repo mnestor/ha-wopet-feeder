@@ -19,7 +19,7 @@ def test_manifest_and_hacs_metadata_are_valid_json() -> None:
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "wopet_local"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.3.1"
+    assert manifest["version"] == "0.4.0"
     assert hacs["name"] == "Wopet Local (feeder)"
     assert manifest["documentation"].startswith("https://github.com/mnestor/ha-wopet-feeder")
 
@@ -39,7 +39,7 @@ def test_home_assistant_app_metadata_is_valid_yaml() -> None:
     )
     assert repository["name"] == "Wopet Feeder (local)"
     assert app["slug"] == "wopet_feeder_bridge"
-    assert app["version"] == "0.5.7"
+    assert app["version"] == "0.5.8"
     assert app["arch"] == ["amd64"]
     assert app["host_network"] is True
     assert app["ingress_port"] == 1985
@@ -175,3 +175,16 @@ def test_p2p_responder_runs_as_its_own_service() -> None:
     dockerfile = (ROOT / "wopet_bridge/Dockerfile").read_text(encoding="utf-8")
     assert "p2p_responder.py" in run
     assert "/etc/services.d/p2p/run" in dockerfile
+
+
+def test_every_served_card_exists_and_defines_its_element() -> None:
+    import re
+
+    recorder = (ROOT / "custom_components/wopet_local/recorder.py").read_text(encoding="utf-8")
+    cards = re.search(r"CARDS = \(([^)]*)\)", recorder).group(1)
+    names = re.findall(r'"([^"]+\.js)"', cards)
+    assert names == ["wopet-clip-card.js", "wopet-schedule-card.js"]
+    frontend = ROOT / "custom_components/wopet_local/frontend"
+    for name in names:
+        source = (frontend / name).read_text(encoding="utf-8")
+        assert f'customElements.define("{name[:-3]}"' in source

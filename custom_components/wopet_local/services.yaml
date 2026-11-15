@@ -1,0 +1,37 @@
+upload_clip:
+  fields:
+    clip:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+    file:
+      required: true
+      example: /media/dinner_bell.m4a
+      selector:
+        text:
+    label:
+      example: Dinner bell
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: wopet_local
+play_clip:
+  fields:
+    clip:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: wopet_local

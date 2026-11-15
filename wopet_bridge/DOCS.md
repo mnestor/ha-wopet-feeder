@@ -42,6 +42,19 @@ This changes the bridge pipe from raw video to MPEG-TS and remains
 experimental; turn it back off if a client cannot play the combined stream. The image builds the tagged go2rtc 1.9.14 source with the
 small PCMA MPEG-TS discovery fix that was subsequently accepted upstream.
 
+**Talk** (experimental): the control port accepts `POST /talk` with the
+control token and streams the body to the feeder's speaker, as G.711 A-law
+(`Content-Type: audio/PCMA`) or 16-bit 8 kHz mono PCM (`audio/L16`). The body
+may be chunked, so a live microphone works. The go2rtc stream also has a
+two-way audio backchannel, so a WebRTC viewer that sends its microphone talks
+through the feeder. For the Home app, see docs/HOMEKIT.md.
+
+**Voice clips**: `GET /clips` lists the feeder's five clip slots;
+`POST /clip?clip=N&label=NAME` stores a WAV (PCM 16-bit, mono, 8 kHz, at most
+10 s) in slot N (0-4); `POST /clip/play` with `{"clip": N}` plays one. The
+Wopet Local integration wraps these as the per-meal clip selects and the
+`upload_clip` / `play_clip` services.
+
 The app's **Open Web UI** button opens the protected go2rtc diagnostics page.
 
 If the camera drops a session or temporarily refuses a reconnect, the bridge

@@ -100,3 +100,22 @@ transcodes the 8 kHz G.711 A-law track to AAC-ELD for the Home app.
   again in later runs; the cause is unknown. If it happens, turn audio off.
   For debugging, the stream script writes a timestamp trace of audio and video
   when `CUBOAI_AV_DEBUG` names a file.
+
+## Talk
+
+With bridge 0.5.8 or later, the Home app's microphone button talks through
+the feeder's speaker (tested 2026-11-15). Add `returnAudioTarget` to the camera's `videoConfig`:
+
+```json
+"returnAudioTarget": "-codec:a pcm_alaw -ar 8000 -ac 1 -f alaw -content_type audio/PCMA -method POST http://<ha-host>:1986/talk?token=<control token>"
+```
+
+The plugin decodes the Home app's AAC-ELD with the bundled ffmpeg and streams
+it to the bridge's `/talk` endpoint. It splits these arguments on spaces, so
+the token goes in the URL instead of a header; the bridge accepts either.
+That puts the control token in Homebridge's `config.json`, which also allows
+feeding, so keep that file private.
+
+The feeder confirms every audio frame it receives. Its microphone has echo
+cancellation, so a viewer hears your voice from the speaker fade within about
+a second; the speaker itself plays it all.

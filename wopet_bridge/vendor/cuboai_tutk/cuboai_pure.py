@@ -2209,6 +2209,7 @@ class TUTKDirectSession:
         # mid-stream GET injection slot (None in every default path -> reader hooks inert,
         # stream byte-identical). Set by get_during_stream, serviced by _av_reader.
         self._get_inject = None
+        self._wopet_handlers = ()        # Wopet channel handlers (talk, clip upload), run by the AV reader
         self._inject_lock = threading.Lock()   # M1: one mid-stream GET-inject at a time (no slot clobber)
         self._ctrl_log = None    # gated diagnostic: callback(ts, io_type, hex96) for inbound IO/control frames
         self._stat_keepalive_err = 0   # L1: keepalive-reply send failures (surfaces a wedged socket via stats)
@@ -3724,6 +3725,12 @@ class TUTKDirectSession:
                 r, _, _ = select.select([s], [], [], 0.04)
                 maybe_ack()                        # rate-limited (~10/s) periodic ACK
                 maybe_nak()                        # S54: resend_mode gap NAK (no-op if off)
+                handlers = self._wopet_handlers    # Wopet talk / clip upload (reader = sole sender)
+                for handler in handlers:
+                    try:
+                        handler.pump(self, s)
+                    except OSError:
+                        pass
                 # S81: send the deferred 0x0300 (stream-start) ~_MID_IOCTL_SECS after
                 # stream-open, matching native (0x0300 @~5 s, reliable-seq ~68). Purely
                 # time-based: 0x0300 is the trigger that starts video, so there are no
@@ -3801,6 +3808,10 @@ class TUTKDirectSession:
                         continue
                     dec = inv_transcode(raw)
                     if len(dec) < 40:
+                        continue
+                    handler = next((h for h in handlers if h.active and dec[14] == h.channel), None)
+                    if handler is not None:
+                        handler.rx(self, s, dec)
                         continue
                     if dec[28] != 0x0C or len(dec) < 68:
                         # S86: capture the camera's ms-clock from cam->host 0x0a [36:38]

@@ -157,8 +157,25 @@ the bridge now does the same at every session.
 ### Voice clips
 
 The meal "audio" byte is a clip index (`sound0.wav` to `sound4.wav`), not a
-flag. Clip upload was decoded from a capture (TUTK RDT channel 3, WAV 8 kHz mono
-16-bit, 10 s maximum) but is not implemented.
+flag. Clip upload (bridge 0.5.8) is TUTK RDT on IOTC channel 3; the layout is in
+[Protocol](PROTOCOL.md). The first upload worked with the capture's bytes
+replayed, then every later one stalled after the ping exchange: byte +17 of the
+RDT header is a connection id that belongs to the feeder (1 after boot), not a
+constant, and after a few aborted uploads the feeder's id had moved to 8 and it
+ignored our pongs. The bridge now takes the id from the feeder's ping, and
+closes each transfer (FIN, close) so the id stays put. A 2-second clip uploads
+in about 2 seconds; the feeder confirms it with `07 stop` and lists the new
+label and time in `0x2087`.
+
+### Talk
+
+Two-way talk (bridge 0.5.8) follows the app: IOCTL `0x0350` on channel 0, the
+feeder logs in to us on channel 1, we grant it, then send 50 ms PCM frames with
+the feeder's own audio trailer. The feeder acknowledges every frame (`0x09`,
+highest index at [38:40]); all test frames were confirmed, and the Home app's
+mic button (through Homebridge) was heard at the feeder. Its microphone has
+echo cancellation, so a recording of the feeder hears steady tones from its own
+speaker fade within about a second; that is not lost audio.
 
 ## Open questions
 

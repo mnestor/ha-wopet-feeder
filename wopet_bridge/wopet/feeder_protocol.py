@@ -31,8 +31,11 @@ no working NTP while offline and loses time across a power cut)
 
 Sound clips (decoded 2026-11-15): 0x2086 (8 zero bytes) -> 0x2087 lists five
 slots sound0..sound4.wav; an upload is 0x208a -> 0x208b followed by the WAV
-(8 kHz mono 16-bit, app limit 10 s) over a separate TUTK RDT channel. Upload is
-not implemented here.
+(8 kHz mono 16-bit, app limit 10 s) over TUTK RDT on IOTC channel 3 (see
+vendor/cuboai_tutk/wopet_clip.py). Each clip is a 104-byte entry: file name[32],
+label[32] ("invalid" = empty), 32 unused bytes, u32 seconds, u32 Unix time.
+0x208a carries u32 0 + the new entry (272 bytes in all); 0x2088 with u32 2 +
+the entry plays that clip now.
 """
 
 from __future__ import annotations
@@ -48,6 +51,14 @@ FEED_RESP = 0x207F
 EVENT = 0x2072
 TIME_REQ = 0x2052
 TIME_RESP = 0x2053
+CLIPS_REQ = 0x2086
+CLIPS_RESP = 0x2087
+CLIP_PLAY_REQ = 0x2088
+CLIP_PLAY_RESP = 0x2089
+CLIP_UPLOAD_REQ = 0x208A
+CLIP_UPLOAD_RESP = 0x208B
+CLIP_ENTRY_LEN = 104
+CLIP_EMPTY_LABEL = "invalid"
 
 RECORD_LEN = 56
 ENTRY_LEN = 4 + RECORD_LEN
@@ -277,3 +288,61 @@ def parse_event(payload: bytes) -> int | None:
     if len(payload) < 20:
         return None
     return struct.unpack_from("<I", payload, 16)[0]
+
+
+def clip_file(index: int) -> str:
+    if not 0 <= index < SOUND_SLOTS:
+        raise ValueError(f"clip must be 0-{SOUND_SLOTS - 1}")
+    return f"sound{index}.wav"
+
+
+def build_clip_list() -> bytes:
+    return bytes(8)
+
+
+def _cstr(raw: bytes) -> str:
+    return raw.split(b"\0", 1)[0].decode("utf-8", "replace")
+
+
+def parse_clips(body: bytes) -> list[dict[str, object]]:
+    """The five clip slots from a 0x2087 reply."""
+    if len(body) < 8:
+        raise ProtocolError("clip list too short")
+    count = min(struct.unpack_from("<I", body, 4)[0], SOUND_SLOTS)
+    clips = []
+    for index in range(count):
+        entry = body[8 + CLIP_ENTRY_LEN * index: 8 + CLIP_ENTRY_LEN * (index + 1)]
+        if len(entry) < CLIP_ENTRY_LEN:
+            raise ProtocolError("clip list truncated")
+        label = _cstr(entry[32:64])
+        seconds, stamp = struct.unpack_from("<II", entry, 96)
+        empty = label in ("", CLIP_EMPTY_LABEL)
+        clips.append({
+            "clip": index,
+            "file": _cstr(entry[0:32]),
+            "label": None if empty else label,
+            "seconds": seconds,
+            "time": stamp or None,
+            "empty": empty,
+        })
+    return clips
+
+
+def build_clip_entry(index: int, label: str, seconds: int, epoch: int) -> bytes:
+    entry = bytearray(CLIP_ENTRY_LEN)
+    entry[0:32] = clip_file(index).encode().ljust(32, b"\0")
+    text = label.encode("utf-8")
+    if not text or len(text) > 31:
+        raise ValueError("clip label must be 1-31 bytes")
+    entry[32:64] = text.ljust(32, b"\0")
+    struct.pack_into("<II", entry, 96, seconds, epoch)
+    return bytes(entry)
+
+
+def build_clip_upload(index: int, label: str, seconds: int, epoch: int) -> bytes:
+    body = struct.pack("<I", 0) + build_clip_entry(index, label, seconds, epoch)
+    return body.ljust(272, b"\0")
+
+
+def build_clip_play(index: int, label: str, seconds: int, epoch: int) -> bytes:
+    return struct.pack("<I", 2) + build_clip_entry(index, label, seconds, epoch)

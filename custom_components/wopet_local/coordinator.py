@@ -35,6 +35,7 @@ class WopetPlanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             update_interval=SCAN_INTERVAL,
         )
         self.client = client
+        self.clips: list[dict[str, Any]] = []
 
     @staticmethod
     def _index(meals: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
@@ -48,7 +49,16 @@ class WopetPlanCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             self.update_interval = RETRY_INTERVAL
             raise UpdateFailed(str(exc)) from exc
         self.update_interval = SCAN_INTERVAL
+        try:
+            self.clips = await self.client.async_get_clips()
+        except HomeAssistantError as exc:
+            # Older bridges have no clip list; the schedule still works.
+            _LOGGER.debug("Wopet clip list unavailable: %s", exc)
         return data
+
+    async def async_set_clips(self, clips: list[dict[str, Any]]) -> None:
+        self.clips = clips
+        self.async_update_listeners()
 
     async def async_set_meal(self, slot: int, **changes: Any) -> None:
         meals = await self.client.async_set_meal(slot, **changes)

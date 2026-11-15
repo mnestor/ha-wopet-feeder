@@ -26,11 +26,12 @@ If you have a D100, use upstream.
 | Run with the internet blocked | Works | See [Ways to run it](#ways-to-run-it) |
 | Stop offline video drops | Works (soaks of about an hour so far) | Local answers to the feeder's P2P server queries, reached by a DNS override or router redirects |
 | Manual feed (Feed button) | Implemented, not yet pressed from HA | Sent exactly once, never retried; reports "bowl full" refusals |
-| Show which voice clip a meal plays | Works | `sound_file` attribute on each meal audio switch |
-| Choose a clip per meal | API only | `POST /plan {"slot": n, "sound": 0-4}`; no HA entity yet |
-| Upload a voice clip | Decoded, not implemented | Needs TUTK RDT channel 3, see [Protocol](docs/PROTOCOL.md) |
+| Edit the schedule on a dashboard | Works | Feeding schedule card (`custom:wopet-schedule-card`), loaded by the integration |
+| Choose a clip per meal | Works | `Meal N clip` select: Silent or one of the five clips, with their labels |
+| Record a voice clip | Works | Recorder card on the dashboard, or `wopet_local.upload_clip` for an audio file; `wopet_local.play_clip` plays one now; bridge 0.5.8 + integration 0.4.0 |
 | Feeding history (`0x20d3`) | Does not work | Query timed out and broke the next session |
 | Camera audio | Works (experimental, off by default) | 8 kHz microphone as G.711 A-law next to the video; needs bridge 0.5.7 |
+| Talk through the feeder speaker | Works (experimental) | `POST /talk` on the control port; Home app talk button through Homebridge; needs bridge 0.5.8 |
 | HomeKit with Secure Video | Works | Through Homebridge, with a software motion trigger; see [HomeKit](docs/HOMEKIT.md) |
 | Faking the vendor's internet checks | Does not work, do not try | The feeder stops P2P and can hang until power-cycled |
 
@@ -159,8 +160,49 @@ upstream repository.
 | `time.<name>_meal_N_time` | Meal time |
 | `number.<name>_meal_N_portions` | Portions, 1 to 10 |
 | `select.<name>_meal_N_grid` | Food grid size: small or big |
-| `switch.<name>_meal_N_audio` | Play the meal's voice clip (`sound_file` attribute) |
+| `select.<name>_meal_N_clip` | Voice clip the meal plays: Silent (no sound) or Clip 1-5, with the feeder's labels |
 | `text.<name>_meal_N_name` | Meal name |
+
+### Feeding schedule card
+
+The integration also loads a **Wopet feeding schedule** card
+(`type: custom:wopet-schedule-card`; optional `title`, and `device_id` if you
+have more than one feeder). It lists the six meals sorted by time with an on/off
+switch each; open a meal to change its time (type `0630` or `18:15`), label,
+portions, kibble size and voice clip in place. A change counts as saved only
+when Home Assistant reports the feeder's new value: until then the field shows
+*Saving…*, and if the feeder doesn't confirm within 10 seconds the card puts
+the old value back and offers **Retry**. Switching a meal off shows **Undo**
+for a few seconds.
+
+```yaml
+type: custom:wopet-schedule-card
+title: Feeding schedule
+```
+
+### Voice clips
+
+The feeder stores five clips. The easiest way to record one is the **Wopet
+clip recorder** card, which the integration loads on every dashboard (no
+resource to add). Edit a dashboard, **Add card**, pick *Wopet clip recorder*
+(or `type: custom:wopet-clip-card`). Choose a slot, tap **Record** (it stops by
+itself at 10 seconds), listen back, then **Save to feeder**. **Play on feeder**
+plays the slot now. The browser only allows the microphone over HTTPS or in the
+Companion app.
+
+To use an existing audio file instead, put it in **Media → My media** and call:
+
+```yaml
+action: wopet_local.upload_clip
+data:
+  clip: 3                 # slot 1-5; replaces what is there
+  file: media-source://media_source/local/dinner_bell.m4a   # or /media/dinner_bell.m4a
+  label: Dinner bell      # optional; defaults to the file name
+```
+
+Any format ffmpeg reads works. The first 10 seconds are kept, mixed to mono,
+resampled to 8 kHz and normalised to just under full scale. Then pick the clip
+in a meal's clip select, or play it now with `wopet_local.play_clip`.
 
 The schedule is stored on the feeder and runs without Home Assistant. HA reads
 it every 6 hours and after each change. Every command starts a short camera

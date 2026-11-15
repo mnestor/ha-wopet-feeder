@@ -14,6 +14,8 @@ from .const import (
 )
 from .control import WopetControlClient
 from .coordinator import WopetPlanCoordinator, WopetRuntimeData
+from .recorder import async_setup_recorder
+from .services import async_setup_services
 
 PLATFORMS = (
     Platform.CAMERA,
@@ -48,6 +50,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_refresh()
     entry.runtime_data = WopetRuntimeData(client=client, coordinator=coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
+    await async_setup_services(hass)
+    await async_setup_recorder(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
