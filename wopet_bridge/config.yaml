@@ -1,5 +1,5 @@
 name: Wopet Feeder Bridge
-version: "0.5.9"
+version: "0.5.10"
 slug: wopet_feeder_bridge
 description: Local video, feeding and schedule control for the WOPET Camera Pet Feeder, with no cloud (fork of DrDronez/ha-wopet-local)
 url: https://github.com/mnestor/ha-wopet-feeder

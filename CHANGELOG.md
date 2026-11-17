@@ -45,6 +45,16 @@ starts from DrDronez/ha-wopet-local 0.2.10.
   browser and HACS use them).
 - Needs bridge 0.5.9.
 
+## Bridge 0.5.10
+
+- Audio watchdog: with audio on, the stream reconnects when the feeder sends no
+  audio for 15 seconds while video still flows (`WOPET_AUDIO_STALL_SECS`).
+  On 2026-11-15 the preloaded session lost audio about an hour after start and
+  never got it back. The RTSP stream still listed the audio track, so
+  Homebridge's ffmpeg waited for audio that never came: every HKSV recording
+  ended with reason 6 and zero fragments, and live view took 20 seconds to
+  start.
+
 ## Bridge 0.5.9
 
 - Feed log: `GET /feedlog?days=N` (1-30, default 3) returns the feeder's own

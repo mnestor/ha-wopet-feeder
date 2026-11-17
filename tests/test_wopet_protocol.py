@@ -315,6 +315,22 @@ def test_video_stall_exit_reconnects_quickly() -> None:
     assert "_last_video[0] = _time.time()" in source
 
 
+def test_audio_stall_exits_to_reconnect() -> None:
+    """With audio muxed, a session whose audio dies while video flows must reconnect.
+
+    The RTSP track list still offers audio, so ffmpeg viewers that map it (Homebridge
+    live view, HKSV) wait forever; HKSV then fails with reason 6 and zero fragments.
+    """
+    streamer = _load_stream_video("wopet_cuboai_stream_audio_stall")
+    source = inspect.getsource(streamer.main)
+    assert "WOPET_AUDIO_STALL_SECS" in source
+    assert "audio_tap=lambda *_a: _last_audio.__setitem__(0, _time.time())" in source
+    assert "_audio_watch and _time.time() - _last_audio[0] > _audio_limit" in source
+    # Only on the muxed-audio path; video-only output must never trip it.
+    assert "os.environ.get('CUBOAI_MUX_AUDIO', '0') != '0'" in source
+    assert "output_format == 'mpegts'" in source
+
+
 def test_output_pacing_interval() -> None:
     module = _load_stream_video("wopet_cuboai_stream_pace")
     steady = [i / 15 for i in range(30)]

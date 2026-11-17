@@ -39,7 +39,7 @@ def test_home_assistant_app_metadata_is_valid_yaml() -> None:
     )
     assert repository["name"] == "Wopet Feeder (local)"
     assert app["slug"] == "wopet_feeder_bridge"
-    assert app["version"] == "0.5.9"
+    assert app["version"] == "0.5.10"
     assert app["arch"] == ["amd64"]
     assert app["host_network"] is True
     assert app["ingress_port"] == 1985

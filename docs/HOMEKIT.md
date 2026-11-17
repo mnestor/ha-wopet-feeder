@@ -97,7 +97,11 @@ transcodes the 8 kHz G.711 A-law track to AAC-ELD for the Home app.
 - Viewers that use both tracks (ffmpeg, the Home app) wait for audio. Once, on
   the first run of 0.5.7, the audio stopped reaching go2rtc after about 95
   seconds while video continued, and those viewers froze. It did not happen
-  again in later runs; the cause is unknown. If it happens, turn audio off.
+  again in later runs; the cause is unknown. It came back on 2026-11-15 and
+  lasted a day: HKSV recordings ended with "STREAM FORMAT INCOMPATIBILITY
+  (reason 6)" and "Total fragments: 0". Bridge 0.5.10 reconnects the stream
+  when audio stops for 15 seconds while video flows. To check by hand,
+  `ffprobe -show_packets` on the RTSP URL should list audio packets.
   For debugging, the stream script writes a timestamp trace of audio and video
   when `CUBOAI_AV_DEBUG` names a file.
 

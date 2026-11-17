@@ -689,6 +689,18 @@ def main() -> None:
     _video_limit = float(os.environ.get('WOPET_VIDEO_STALL_SECS', '20'))
     _last_video = [_time.time()]
 
+    # Wopet feeder fork: the feeder can stop sending listen audio while video keeps
+    # flowing (seen 2026-11-15: no audio for a day on a preloaded session). The RTSP
+    # stream still lists the audio track, so ffmpeg viewers that map it (Homebridge
+    # live view and HKSV recording) wait forever and HKSV ends with reason 6 and zero
+    # fragments. The feeder sends silence frames between sounds, so a gap in audio
+    # means the audio leg is dead: exit with VIDEO_STALL_EXIT and reconnect.
+    _audio_limit = float(os.environ.get('WOPET_AUDIO_STALL_SECS', '15'))
+    _audio_watch = (output_format == 'mpegts'
+                    and os.environ.get('CUBOAI_MUX_AUDIO', '0') != '0'
+                    and _audio_limit > 0)
+    _last_audio = [_time.time()]
+
     def _stall_watchdog():
         while True:
             _time.sleep(1.0)
@@ -700,6 +712,10 @@ def main() -> None:
             if _video_limit > 0 and _time.time() - _last_video[0] > _video_limit:
                 print(f"no video from the feeder for {_video_limit:.0f}s; exiting to reconnect",
                       file=sys.stderr, flush=True)
+                os._exit(VIDEO_STALL_EXIT)
+            if _audio_watch and _time.time() - _last_audio[0] > _audio_limit:
+                print(f"no audio from the feeder for {_audio_limit:.0f}s while video flows; "
+                      "exiting to reconnect", file=sys.stderr, flush=True)
                 os._exit(VIDEO_STALL_EXIT)
 
     _threading.Thread(target=_stall_watchdog, name="stdout-watchdog", daemon=True).start()
@@ -781,7 +797,8 @@ def main() -> None:
             mux_audio = os.environ.get('CUBOAI_MUX_AUDIO', '0') != '0'
             # Unpaced (the PTS carries the timing); only video feeds the no-video watchdog.
             mux_timed_stream(sess.av_frames_timed(), _write, clean_gop=clean_gop, mux_audio=mux_audio,
-                             tap=lambda *_a: _last_video.__setitem__(0, _time.time()))
+                             tap=lambda *_a: _last_video.__setitem__(0, _time.time()),
+                             audio_tap=lambda *_a: _last_audio.__setitem__(0, _time.time()))
         else:
             waiting_for_keyframe = True
             strip_trailer = video_codec() == 'h264'
